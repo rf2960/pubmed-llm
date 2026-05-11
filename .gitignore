@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+
+# Generated pipeline/cache artifacts
+functional_study_cache/
+cache_pubmed/
+functional_papers.csv
+*_results.csv
+results_export.csv
+
+# Local database/runtime state
+*.db-wal
+*.db-shm
+
+# Secrets and credentials
+*.json
+!.example.json
+.env
