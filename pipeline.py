@@ -747,10 +747,43 @@ def cache_set(gene: str, pmid: str, row: dict):
         print(f"  [Cache] Write failed: {e}")
 
 
+def _db_processed_pmids(gene: str) -> set[str]:
+    """Return PMIDs already recorded in SQLite, if db.py is available."""
+    try:
+        import db as database
+        return database.get_processed_pmids(gene)
+    except Exception:
+        return set()
+
+
+def _db_upsert_rows(rows: list[dict]):
+    """Persist rows to SQLite when this pipeline is running beside db.py."""
+    if not rows:
+        return
+    try:
+        import db as database
+        database.upsert_papers_bulk(rows)
+        for gene in sorted({str(r.get("gene", "")).upper() for r in rows if r.get("gene")}):
+            database.update_gene_record(gene)
+    except Exception as e:
+        print(f"  [DB] Save skipped/failed: {e}")
+
+
+def _db_mark_skipped(gene: str, pmid: str, reason: str):
+    try:
+        import db as database
+        database.mark_skipped(gene, str(pmid), reason=reason)
+    except Exception:
+        pass
+
+
 # SECTION 9: Per-gene analysis 
 def check_new_pmids(gene: str, pmids: list[str]) -> list[str]:
+    processed_pmids = _db_processed_pmids(gene)
     new_pmids = []
     for pmid in pmids:
+        if str(pmid) in processed_pmids:
+            continue
         cached = cache_get(gene, pmid)
         if cached is None:
             new_pmids.append(pmid)
@@ -831,6 +864,7 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
         if classify_cancer_type(f"{title} {abstract}") == "unknown":
             print("(skipped — not cancer)")
             cache_set(gene, pmid, {"_skip": True})
+            _db_mark_skipped(gene, pmid, "not cancer")
             continue
 
         print("(processing …)")
@@ -921,6 +955,7 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
         cache_set(gene, pmid, row)
         rows.append(row)
 
+    _db_upsert_rows(rows)
     return rows
 
 
