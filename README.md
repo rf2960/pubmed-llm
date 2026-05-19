@@ -152,24 +152,53 @@ The intended use is triage and evidence organization for researchers.
 | `drive_sync.py` | Google Drive sync for the hosted DB. |
 | `pipeline.py` | PubMed retrieval, evidence extraction, rule logic, LLM classification, confidence scoring. |
 | `pubmed_llm.ipynb` | Colab worker notebook for monthly or queued gene processing. |
+| `scripts/process_queue.py` | Batch worker for pending website gene requests. |
+| `scripts/update_existing_genes.py` | Monthly refresh script for genes already in the database. |
+| `scripts/check_queue_status.py` | Lightweight queue/database status check. |
 | `gene_function_lab/gene_function_lab.db` | Current local SQLite database snapshot. |
 | `Dockerfile` | Hugging Face Spaces container setup. |
 | `requirements.txt` | CPU website dependencies. |
+| `requirements-worker.txt` | GPU/worker dependencies for Colab or a GPU VM. |
 | `docs/images/` | README screenshots and roadmap visuals. |
 
 Generated cache folders, CSV exports, Python bytecode, and credential JSON files are excluded through `.gitignore`.
 
-## Monthly Maintenance Workflow
+## Maintenance Workflow
 
-Recommended monthly process:
+The notebook remains available, but the preferred maintenance path is now the reusable scripts in `scripts/`.
 
-1. Open `pubmed_llm.ipynb` in Google Colab.
-2. Use a GPU runtime.
-3. Run setup cells to mount Drive and configure secrets.
-4. Process pending website gene requests or refresh existing genes.
-5. Upload/sync the updated SQLite DB.
-6. Confirm the Hugging Face website shows the refreshed database.
-7. Optionally commit the updated DB snapshot back to GitHub.
+Check queue/database status:
+
+```bash
+python scripts/check_queue_status.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
+```
+
+Process a safe first batch of queued genes:
+
+```bash
+python scripts/process_queue.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --max-requests 1 \
+  --max-papers 25 \
+  --reset-processing \
+  --upload-at-end
+```
+
+Refresh existing genes monthly:
+
+```bash
+python scripts/update_existing_genes.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --start-at 0 \
+  --max-genes 5 \
+  --max-papers 50 \
+  --upload
+```
+
+See [docs/maintenance.md](docs/maintenance.md) for the full operational guide, backlog strategy, and troubleshooting notes.
 
 The website itself should remain lightweight. Do not run BioMistral inside the Hugging Face CPU Space.
 
@@ -203,6 +232,13 @@ Use `pubmed_llm.ipynb` for GPU work. Replace placeholder secrets with Colab secr
 - PubMed/Entrez email
 
 Do not commit real service-account JSON files, Hugging Face tokens, or `.env` files.
+
+For script-based maintenance in Colab:
+
+```bash
+%cd /content/drive/MyDrive/pubmed_llm
+!pip install -r requirements-worker.txt
+```
 
 ## Future Engineering Priorities
 

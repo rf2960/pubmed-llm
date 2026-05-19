@@ -780,14 +780,7 @@ def _db_mark_skipped(gene: str, pmid: str, reason: str):
 # SECTION 9: Per-gene analysis 
 def check_new_pmids(gene: str, pmids: list[str]) -> list[str]:
     processed_pmids = _db_processed_pmids(gene)
-    new_pmids = []
-    for pmid in pmids:
-        if str(pmid) in processed_pmids:
-            continue
-        cached = cache_get(gene, pmid)
-        if cached is None:
-            new_pmids.append(pmid)
-    return new_pmids
+    return [pmid for pmid in pmids if str(pmid) not in processed_pmids]
 
 
 def _build_overall_decision(gene: str, decision: dict,
@@ -852,6 +845,7 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
         if cached is not None:
             if cached.get("_skip"):
                 print("(cached skip)")
+                _db_mark_skipped(gene, pmid, "cached skip")
                 continue
             print("(cached)")
             rows.append(cached)

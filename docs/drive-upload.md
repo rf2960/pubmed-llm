@@ -30,6 +30,14 @@ pubmed_llm/
   pipeline.py
   db.py
   drive_sync.py
+  requirements-worker.txt
+  scripts/
+    check_queue_status.py
+    process_queue.py
+    update_existing_genes.py
+    common.py
+  docs/
+    maintenance.md
   gene_function_lab/
     gene_function_lab.db
   functional_study_cache/
@@ -50,6 +58,29 @@ pubmed_llm/
 ## Why The Bundle Is Ignored
 
 `drive_upload/` is intentionally gitignored because it is a generated package that duplicates source files and includes a database snapshot. Keep the canonical source in the repo root; regenerate or refresh the bundle when you need to upload to Drive.
+
+## Running Maintenance From Drive
+
+After uploading the bundle to Drive, open Colab and run:
+
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+%cd /content/drive/MyDrive/pubmed_llm
+!pip install -r requirements-worker.txt
+```
+
+Then check the queue:
+
+```python
+!python scripts/check_queue_status.py
+```
+
+Process a small batch:
+
+```python
+!python scripts/process_queue.py --max-requests 1 --max-papers 25 --reset-processing --upload-at-end
+```
 
 ## Secret Handling
 

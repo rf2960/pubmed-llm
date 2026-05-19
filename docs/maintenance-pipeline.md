@@ -1,5 +1,9 @@
 # Maintenance Pipeline Review
 
+For day-to-day operations, use the script-based guide in
+[`docs/maintenance.md`](maintenance.md). This file records the pipeline audit
+and rationale behind the maintenance changes.
+
 ## Does The Current Workflow Support The Goal?
 
 Yes, with the updated maintenance cells and pipeline safeguards:
