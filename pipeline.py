@@ -467,7 +467,8 @@ def load_llm():
         HF_MODEL,
         device_map="auto",
         quantization_config=bnb_config,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
+        use_safetensors=False,
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
