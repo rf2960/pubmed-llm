@@ -8,6 +8,8 @@ import traceback
 SYNC_INTERVAL_SECONDS = 3600
 DRIVE_FILE_NAME       = "gene_function_lab.db"
 LOCAL_DB_PATH         = "/content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db"
+DRIVE_FILE_ID_ENV     = "GOOGLE_DRIVE_DB_FILE_ID"
+DRIVE_FOLDER_ID_ENV   = "GOOGLE_DRIVE_FOLDER_ID"
 
 _last_sync     = 0
 _sync_lock     = threading.Lock()
@@ -49,10 +51,25 @@ def _find_db_file_id(service):
     if _drive_file_id:
         return _drive_file_id
 
+    configured_file_id = os.environ.get(DRIVE_FILE_ID_ENV, "").strip()
+    if configured_file_id:
+        _drive_file_id = configured_file_id
+        print(f"[Drive] Using {DRIVE_FILE_ID_ENV}: {_drive_file_id}")
+        return _drive_file_id
+
+    folder_id = os.environ.get(DRIVE_FOLDER_ID_ENV, "").strip()
+    query_parts = [f"name='{DRIVE_FILE_NAME}'", "trashed=false"]
+    if folder_id:
+        query_parts.append(f"'{folder_id}' in parents")
+    query = " and ".join(query_parts)
+
     print(f"[Drive] Searching for {DRIVE_FILE_NAME}...")
+    if folder_id:
+        print(f"[Drive] Restricting search to folder id: {folder_id}")
     results = service.files().list(
-        q=f"name='{DRIVE_FILE_NAME}' and trashed=false",
-        fields="files(id, name)",
+        q=query,
+        fields="files(id, name, modifiedTime, size)",
+        orderBy="modifiedTime desc",
         pageSize=10,
     ).execute()
 
@@ -64,6 +81,13 @@ def _find_db_file_id(service):
             f"{DRIVE_FILE_NAME} not found. "
             "Share the gene_function_lab folder with the service account email."
         )
+    if len(files) > 1:
+        print("[Drive] Multiple DB files found; using most recently modified.")
+        for f in files:
+            print(
+                f"  - id={f.get('id')} modified={f.get('modifiedTime')} "
+                f"size={f.get('size')} name={f.get('name')}"
+            )
 
     _drive_file_id = files[0]["id"]
     print(f"[Drive] File id: {_drive_file_id}")

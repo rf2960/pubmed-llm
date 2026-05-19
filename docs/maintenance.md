@@ -37,6 +37,8 @@ Use Colab Secrets, Hugging Face Space secrets, or private environment variables:
 - `HF_TOKEN`: Hugging Face token for downloading BioMistral.
 - `ENTREZ_EMAIL`: email for NCBI Entrez requests.
 - `GOOGLE_SERVICE_ACCOUNT_JSON`: service-account JSON content for Drive sync.
+- `GOOGLE_DRIVE_DB_FILE_ID`: exact Drive file id for `gene_function_lab.db`. Recommended when more than one DB copy exists.
+- `GOOGLE_DRIVE_FOLDER_ID`: optional Drive folder id to restrict DB file lookup.
 - `APP_PASSWORD`: private website password in the Hugging Face Space.
 - `GENE_LAB_DB_PATH`: optional override for the SQLite DB path.
 - `GDRIVE_CACHE`: optional override for the paper cache directory.
@@ -67,6 +69,22 @@ MyDrive/pubmed_llm/service-account.json
 ```
 
 or set `GOOGLE_SERVICE_ACCOUNT_JSON` in the runtime environment.
+
+If the website sync timestamp updates but the counts stay old, Hugging Face is
+probably reading a different `gene_function_lab.db` file than the worker is
+updating. Fix this by setting `GOOGLE_DRIVE_DB_FILE_ID` in both Hugging Face
+Space secrets and the worker runtime, using the file id from the Drive URL for
+the database file that should be the single source of truth.
+
+Example Colab runtime setup:
+
+```python
+from google.colab import userdata
+import os
+
+os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"] = userdata.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+os.environ["GOOGLE_DRIVE_DB_FILE_ID"] = userdata.get("GOOGLE_DRIVE_DB_FILE_ID")
+```
 
 ## Check Queue Status
 

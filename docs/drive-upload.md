@@ -91,3 +91,8 @@ MyDrive/pubmed_llm/service-account.json
 ```
 
 This file is not included in the generated bundle.
+
+If the Hugging Face sync timestamp changes but the website still shows old
+paper/gene counts, set `GOOGLE_DRIVE_DB_FILE_ID` in both Hugging Face Space
+secrets and the worker runtime. This avoids accidentally syncing a different
+`gene_function_lab.db` file with the same name.
