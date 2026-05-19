@@ -469,6 +469,25 @@ def mark_queue_error(queue_id: int, error: str, db_path: str = None):
             (error, queue_id)
         )
 
+
+def reset_processing_requests(db_path: str = None) -> int:
+    """
+    Return abandoned processing requests to pending.
+
+    Use this after a Colab/runtime interruption. A request can be left in
+    processing if the notebook disconnects before marking it done or error.
+    """
+    with get_conn(db_path) as conn:
+        cur = conn.execute("""
+            UPDATE request_queue
+            SET status='pending',
+                started_at=NULL,
+                error=COALESCE(error, 'Reset after interrupted worker')
+            WHERE status='processing'
+        """)
+        return cur.rowcount
+
+
 def upsert_papers_bulk(rows: list, db_path: str = None):
     if not rows:
         return
