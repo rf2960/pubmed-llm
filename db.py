@@ -495,10 +495,15 @@ def upsert_papers_bulk(rows: list, db_path: str = None):
     BOOL_COLS = {'functional_study','in_vitro','in_vivo','knockout',
                  'knockdown','shrna','sirna','crispr','crispr_screen',
                  'classified_by_llm','llm_rules_disagree','rules_functional'}
+    REMAP_COLS = {
+        'evidence_functional_study': 'evidence_perturbation',
+        'overall_decision': 'llm_reasoning',
+    }
 
     def clean(r):
         out = {}
         for k, v in r.items():
+            k = REMAP_COLS.get(k, k)
             if k in BOOL_COLS:
                 if isinstance(v, str):
                     out[k] = 1 if v.upper() == 'YES' else 0
@@ -513,9 +518,12 @@ def upsert_papers_bulk(rows: list, db_path: str = None):
         return out
 
     cleaned = [clean(r) for r in rows]
-    cols  = [c for c in cleaned[0].keys() if c != "processed_at"]
-    ph    = ", ".join("?" * len(cols))
-    cn    = ", ".join(cols)
-    sql   = f"INSERT OR REPLACE INTO papers ({cn}) VALUES ({ph})"
     with get_conn(db_path) as conn:
+        table_cols = {
+            row["name"] for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+        }
+        cols  = [c for c in cleaned[0].keys() if c != "processed_at" and c in table_cols]
+        ph    = ", ".join("?" * len(cols))
+        cn    = ", ".join(cols)
+        sql   = f"INSERT OR REPLACE INTO papers ({cn}) VALUES ({ph})"
         conn.executemany(sql, [[r.get(c) for c in cols] for r in cleaned])
