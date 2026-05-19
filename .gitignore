@@ -16,3 +16,6 @@ results_export.csv
 *.json
 !.example.json
 .env
+
+# Generated local delivery bundle for Google Drive upload
+drive_upload/
