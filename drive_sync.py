@@ -7,7 +7,10 @@ import traceback
 
 SYNC_INTERVAL_SECONDS = 3600
 DRIVE_FILE_NAME       = "gene_function_lab.db"
-LOCAL_DB_PATH         = "/content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db"
+LOCAL_DB_PATH         = os.environ.get(
+    "GENE_LAB_DB_PATH",
+    "/tmp/pubmed_llm/gene_function_lab/gene_function_lab.db",
+)
 DRIVE_FILE_ID_ENV     = "GOOGLE_DRIVE_DB_FILE_ID"
 DRIVE_FOLDER_ID_ENV   = "GOOGLE_DRIVE_FOLDER_ID"
 
@@ -114,6 +117,7 @@ def sync_db_from_drive(force=False):
             while not done:
                 _, done = downloader.next_chunk()
             tmp = LOCAL_DB_PATH + ".tmp"
+            os.makedirs(os.path.dirname(LOCAL_DB_PATH), exist_ok=True)
             with open(tmp, "wb") as f:
                 f.write(buf.getvalue())
             os.replace(tmp, LOCAL_DB_PATH)
