@@ -26,6 +26,7 @@ SA_KEY_PATH = f"{DRIVE_FOLDER}/service-account.json"
 ```text
 pubmed_llm/
   README_FOR_DRIVE.md
+  pubmed_llm_maintenance_runner.ipynb
   pubmed_llm.ipynb
   pipeline.py
   db.py
@@ -62,6 +63,16 @@ pubmed_llm/
 ## Running Maintenance From Drive
 
 After uploading the bundle to Drive, open Colab and run:
+
+```text
+pubmed_llm_maintenance_runner.ipynb
+```
+
+This is the recommended notebook for routine maintenance. It has clear cells for
+checking status, processing queue requests, retrying errors, and monthly
+refresh.
+
+For direct command-line maintenance:
 
 ```python
 from google.colab import drive

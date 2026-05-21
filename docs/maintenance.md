@@ -47,7 +47,18 @@ See `.env.example` for names only. Do not commit real values.
 
 ## Recommended Colab Setup
 
-Run this once at the top of a Colab runtime after mounting Drive:
+For routine lab use, prefer:
+
+```text
+pubmed_llm_maintenance_runner.ipynb
+```
+
+It contains a setup cell, one small editable settings cell, and separate task
+cells for checking status, processing the queue, retrying errors, monthly
+refresh, code updates, and upload.
+
+If running commands manually, run this once at the top of a Colab runtime after
+mounting Drive:
 
 ```python
 %cd /content/drive/MyDrive/pubmed_llm

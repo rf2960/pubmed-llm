@@ -151,7 +151,8 @@ The intended use is triage and evidence organization for researchers.
 | `db.py` | SQLite schema, query helpers, exports, and request queue logic. |
 | `drive_sync.py` | Google Drive sync for the hosted DB. |
 | `pipeline.py` | PubMed retrieval, evidence extraction, rule logic, LLM classification, confidence scoring. |
-| `pubmed_llm.ipynb` | Colab worker notebook for monthly or queued gene processing. |
+| `pubmed_llm_maintenance_runner.ipynb` | Recommended Colab maintenance notebook with simple settings and task cells. |
+| `pubmed_llm.ipynb` | Original Colab worker notebook kept for reference/backward compatibility. |
 | `scripts/process_queue.py` | Batch worker for pending website gene requests. |
 | `scripts/update_existing_genes.py` | Monthly refresh script for genes already in the database. |
 | `scripts/check_queue_status.py` | Lightweight queue/database status check. |
@@ -166,6 +167,8 @@ Generated cache folders, CSV exports, Python bytecode, and credential JSON files
 ## Maintenance Workflow
 
 The notebook remains available, but the preferred maintenance path is now the reusable scripts in `scripts/`.
+
+For non-coding lab members, open `pubmed_llm_maintenance_runner.ipynb` in Colab, run setup, edit the small settings cell, then run the task cell for queue processing, error retries, or monthly refresh.
 
 Check queue/database status:
 
