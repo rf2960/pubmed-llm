@@ -39,8 +39,8 @@ The current pipeline is best described as evidence-grounded extraction plus clas
 4. **LLM-assisted classification**
    BioMistral-7B is used in the Colab/GPU worker to classify evidence into a structured JSON-like output. The Hugging Face website does not load the model.
 
-5. **Confidence scoring**
-   The current confidence score combines rule signals, LLM output, evidence availability, and agreement/disagreement indicators. This is useful for ranking candidates, but it should not be interpreted as a calibrated probability yet.
+5. **Evidence-support scoring**
+   The current confidence field is an interpretable evidence-support score based on perturbation evidence, phenotype evidence, evidence depth, LLM/rule agreement, and penalties for weak evidence patterns. This is useful for ranking candidates, but it should not be interpreted as a calibrated probability yet.
 
 6. **Database and review UI**
    Results are written into SQLite and served through a Flask website on Hugging Face Spaces.
@@ -246,7 +246,7 @@ High-value next steps:
 
 1. Add a small manually reviewed gold-label set.
 2. Report precision, recall, F1, and disagreement cases.
-3. Split confidence into interpretable sub-scores.
+3. Display interpretable confidence sub-signals in the review UI.
 4. Add a verifier pass for low-confidence or rule/LLM-disagreement cases.
 5. Add a review-needed table to the website.
 6. Track reviewer corrections and use them for active learning.

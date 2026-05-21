@@ -106,25 +106,51 @@ PATTERNS = {
         r"ferroptosis|BrdU|bromodeoxyuridine|organoid)\b", re.I),
 }
 
-# Confidence weights
-CONFIDENCE_WEIGHTS = {
-    "gene_specific_perturbation": 0.30,
-    "in_vitro_phenotype":         0.20,
-    "in_vivo_phenotype":          0.25,
-    "both_vitro_and_vivo":        0.10,
-    "crispr_screen":              0.10,
-    "llm_rules_agree":            0.15,
-    "multiple_evidence_sents":    0.05,
+# Confidence scoring
+#
+# This is an evidence-support score for triage, not a calibrated probability.
+# It is intentionally decomposed into interpretable signals so reviewers can
+# understand why a paper ranked high or low.
+FUNCTIONAL_SCORE_WEIGHTS = {
+    "gene_specific_perturbation": 0.20,
+    "in_vitro_phenotype":         0.12,
+    "in_vivo_phenotype":          0.16,
+    "both_vitro_and_vivo":        0.08,
+    "crispr_screen":              0.08,
+    "llm_rules_agree":            0.12,
+    "llm_only_support":           0.04,
+    "evidence_depth":             0.09,
 }
 
-NOT_FUNCTIONAL_WEIGHTS = {
-    "expression_only":        0.30,
-    "correlation_only":       0.25,
-    "no_evidence_sents":      0.20,
-    "review_paper":           0.20,
-    "llm_and_rules_agree_no": 0.20,
+NOT_FUNCTIONAL_SCORE_WEIGHTS = {
+    "expression_only":        0.12,
+    "correlation_only":       0.12,
+    "no_evidence_sents":      0.15,
+    "review_paper":           0.08,
+    "llm_and_rules_agree_no": 0.12,
     "classified_by_llm":      0.05,
 }
+
+FUNCTIONAL_SCORE_PENALTIES = {
+    "expression_only":  0.12,
+    "correlation_only": 0.12,
+    "review_paper":     0.10,
+    "no_evidence_sents": 0.20,
+}
+
+
+def _clamp_score(value: float, lo: float = 0.05, hi: float = 0.95) -> float:
+    return round(max(lo, min(hi, value)), 3)
+
+
+def _evidence_depth_score(n_sents: int) -> float:
+    if n_sents >= 8:
+        return FUNCTIONAL_SCORE_WEIGHTS["evidence_depth"]
+    if n_sents >= 4:
+        return 0.06
+    if n_sents >= 2:
+        return 0.03
+    return 0.0
 
 
 # SECTION 2: Entrez / PubMed helpers
@@ -588,6 +614,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
     primary = llm_result if llm_result is not None else rules_result
     text    = (abstract or "").lower()
     t_lower = (title or "").lower()
+    n_evidence_sents = int(ev.get("total_evidence_sents", 0) or 0)
 
     pos_signals = {
         "gene_specific_perturbation": bool(
@@ -601,7 +628,12 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
             llm_result.get("functional_study") == True and
             rules_result.get("functional_study") == True
         ),
-        "multiple_evidence_sents": ev.get("total_evidence_sents", 0) > 3,
+        "llm_only_support": (
+            llm_result is not None and
+            llm_result.get("functional_study") == True and
+            rules_result.get("functional_study") == False
+        ),
+        "evidence_depth": n_evidence_sents >= 2,
     }
 
     expression_words = ["expression", "mrna level", "protein level",
@@ -625,7 +657,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
     neg_signals = {
         "expression_only":        has_expression_only,
         "correlation_only":       has_correlation_only,
-        "no_evidence_sents":      ev.get("total_evidence_sents", 0) == 0,
+        "no_evidence_sents":      n_evidence_sents == 0,
         "review_paper":           is_review,
         "llm_and_rules_agree_no": (
             llm_result is not None and
@@ -635,22 +667,36 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "classified_by_llm": llm_result is not None,
     }
 
-    conf_functional     = sum(CONFIDENCE_WEIGHTS[k]     for k, v in pos_signals.items() if v)
-    conf_not_functional = sum(NOT_FUNCTIONAL_WEIGHTS[k] for k, v in neg_signals.items() if v)
+    conf_functional = 0.35 if primary.get("functional_study") else 0.20
+    for key, present in pos_signals.items():
+        if not present:
+            continue
+        if key == "evidence_depth":
+            conf_functional += _evidence_depth_score(n_evidence_sents)
+        else:
+            conf_functional += FUNCTIONAL_SCORE_WEIGHTS[key]
 
-    conf_functional     = round(min(1.0, conf_functional),     3)
-    conf_not_functional = round(min(1.0, conf_not_functional), 3)
+    for key, penalty in FUNCTIONAL_SCORE_PENALTIES.items():
+        if neg_signals.get(key):
+            conf_functional -= penalty
+
+    conf_not_functional = 0.40 if not primary.get("functional_study") else 0.20
+    conf_not_functional += sum(
+        NOT_FUNCTIONAL_SCORE_WEIGHTS[k] for k, v in neg_signals.items() if v
+    )
+    if ev.get("evidence_perturbation"):
+        conf_not_functional -= 0.10
 
     if (llm_result is not None and
             llm_result.get("functional_study") != rules_result.get("functional_study")):
-        conf_functional     = min(conf_functional,     0.60)
-        conf_not_functional = min(conf_not_functional, 0.60)
+        conf_functional     = min(conf_functional,     0.62)
+        conf_not_functional = min(conf_not_functional, 0.62)
 
     if llm_result is None:
-        conf_functional     = min(conf_functional,     0.65)
-        conf_not_functional = min(conf_not_functional, 0.65)
+        conf_functional     = min(conf_functional,     0.72)
+        conf_not_functional = min(conf_not_functional, 0.72)
 
-    return conf_functional, conf_not_functional, pos_signals, neg_signals
+    return _clamp_score(conf_functional), _clamp_score(conf_not_functional), pos_signals, neg_signals
 
 
 def ensemble_classify(gene: str, title: str, abstract: str,
