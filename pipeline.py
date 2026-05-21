@@ -20,6 +20,7 @@ Entrez.email       = "ssd2184@columbia.edu"
 Entrez.tool        = "functional-study-db"
 Entrez.sleep_between_tries = True
 Entrez.sleep_duration      = 0.4
+PUBMED_MAX_RETSTART = 9998
 
 # LLM Model
 HF_MODEL   = "BioMistral/BioMistral-7B"
@@ -159,9 +160,13 @@ def pubmed_search_ids(gene: str, extra_terms: list[str], batch_size=2000) -> lis
     print(f"  [PubMed] {gene}: {total} hits")
 
     pmids = []
-    for start in range(0, total, batch_size):
+    fetch_limit = min(total, PUBMED_MAX_RETSTART + 1)
+    if total > fetch_limit:
+        print(f"  [PubMed] Limiting ID fetch to first {fetch_limit} hits due to PubMed retstart cap.")
+    for start in range(0, fetch_limit, batch_size):
+        retmax = min(batch_size, fetch_limit - start)
         with entrez_call(Entrez.esearch, db="pubmed", term=term,
-                         retstart=start, retmax=batch_size, retmode="xml") as h:
+                         retstart=start, retmax=retmax, retmode="xml") as h:
             pmids.extend(Entrez.read(h)["IdList"])
     return pmids
 
