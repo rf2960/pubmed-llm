@@ -2,6 +2,15 @@
 
 This is the operational guide for keeping the Hugging Face website database current.
 
+Current clean baseline as of May 22, 2026:
+
+- 23,973 papers
+- 255 genes
+- 3,404 functional papers
+- 0 pending queue requests
+- 0 processing requests
+- 0 error requests
+
 ## Pipeline Summary
 
 ```text

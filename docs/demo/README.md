@@ -4,9 +4,6 @@ This folder documents how the repository presentation images should be interpret
 
 ## Current Images
 
-- `../images/hf-space-login.png`
-  Captured from the public Hugging Face Space URL. The deployed site is password protected, so the public hosted page only exposes the access screen.
-
 - `../images/demo-home.png`
   Generated from the repository web UI style to show the search/dashboard state.
 
@@ -21,4 +18,4 @@ This folder documents how the repository presentation images should be interpret
 
 ## Updating These Assets
 
-When the hosted Space has shareable, non-private views, replace the generated UI screenshots with direct captures from the live deployment. Keep planned/future visuals clearly labeled so the README does not overstate the implementation.
+When the hosted Space has shareable, non-private views, replace the generated UI screenshots with direct captures from the live deployment. Do not commit password/login screenshots or credentials. Keep planned/future visuals clearly labeled so the README does not overstate the implementation.

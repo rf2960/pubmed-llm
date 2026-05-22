@@ -23,6 +23,11 @@ This repository turns those papers into structured evidence records:
 - confidence score and LLM/rule agreement signals
 - queue state for genes requested through the web UI
 
+Current maintained test deployment:
+
+- Hugging Face Space: [ReyaLabColumbia/reyalab-test](https://huggingface.co/spaces/ReyaLabColumbia/reyalab-test)
+- Latest processed baseline, May 22, 2026: 23,973 papers, 255 genes, 3,404 functional papers, 0 pending queue requests, 0 error requests
+
 ## Current Technical Approach
 
 The current pipeline is best described as evidence-grounded extraction plus classification:
@@ -59,11 +64,7 @@ The web UI is designed for fast research review:
 - request new genes for later Colab processing
 - inspect the request queue
 
-The live Hugging Face Space is password protected. The public hosted view currently exposes the login screen:
-
-![Hugging Face hosted access screen](docs/images/hf-space-login.png)
-
-The demo screenshots in this repository are generated from the same UI style and local database snapshot so the GitHub presentation can show the intended review workflow without exposing private access credentials.
+The live Hugging Face Space is password protected. The repository screenshots show the authenticated review workflow without exposing private access credentials.
 
 ## Architecture
 

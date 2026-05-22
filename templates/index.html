@@ -244,13 +244,7 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
 </div>
 <script>
 // ── Base URL — works whether served direct or inside HF iframe ─────────────
-const BASE = (() => {
-  const h = window.location.hostname;
-  if (h === 'huggingface.co' || h.endsWith('.huggingface.co')) {
-    return 'https://shenovad-reyalab.hf.space';
-  }
-  return '';
-})();
+const BASE = '';
 
 // ── Auth token ─────────────────────────────────────────────────────────────
 const TOKEN = new URLSearchParams(window.location.search).get('token')
