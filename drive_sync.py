@@ -121,6 +121,13 @@ def sync_db_from_drive(force=False):
             with open(tmp, "wb") as f:
                 f.write(buf.getvalue())
             os.replace(tmp, LOCAL_DB_PATH)
+            try:
+                import db as database
+                database.init_db(LOCAL_DB_PATH)
+                database.DB_PATH = LOCAL_DB_PATH
+            except Exception as migrate_error:
+                print(f"[Drive] DB migration warning after sync: {migrate_error}")
+                print(traceback.format_exc())
             _last_sync = time.time()
             print(f"[Drive] Synced successfully ({len(buf.getvalue())//1024}KB)")
             return True

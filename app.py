@@ -65,6 +65,10 @@ def _local_db():
 # Force db module to use the same path
 database.DB_PATH = drive_sync.LOCAL_DB_PATH
 
+
+def _ensure_db_schema():
+    database.init_db(_local_db())
+
 # Login page 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -158,6 +162,7 @@ def api_stats():
     auth = require_auth()
     if auth: return auth
     try:
+        _ensure_db_schema()
         stats = database.db_stats(_local_db())
         stats["last_sync"] = time.strftime(
             "%Y-%m-%d %H:%M UTC", time.gmtime(drive_sync._last_sync)
@@ -184,6 +189,7 @@ def api_query():
         return jsonify({"error": "genes parameter is required"}), 400
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()]
     try:
+        _ensure_db_schema()
         result = database.query_papers(
             genes=genes, cancer_type=cancer_type, functional=functional,
             review_status=review_status,
@@ -207,6 +213,7 @@ def api_review():
     if not gene or not pmid:
         return jsonify({"error": "gene and pmid are required"}), 400
     try:
+        _ensure_db_schema()
         row = database.update_paper_review(
             gene=gene,
             pmid=pmid,
@@ -240,6 +247,7 @@ def api_check():
         return jsonify({"error": "genes parameter required"}), 400
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()]
     result = {}
+    _ensure_db_schema()
     for gene in genes:
         in_db    = database.gene_is_processed(gene, _local_db())
         q_status = database.get_queue_status(gene, _local_db())
@@ -261,6 +269,7 @@ def api_request():
         return jsonify({"error": "gene is required"}), 400
     if not gene.replace("-","").replace("_","").isalnum() or len(gene) > 20:
         return jsonify({"error": "Invalid gene name"}), 400
+    _ensure_db_schema()
     if database.gene_is_processed(gene, _local_db()):
         return jsonify({
             "status": "already_processed", "gene": gene,
@@ -289,6 +298,7 @@ def api_queue():
     auth = require_auth()
     if auth: return auth
     try:
+        _ensure_db_schema()
         queue   = database.get_all_queue(_local_db())
         pending = [q for q in queue if q["status"] == "pending"]
         return jsonify({"queue": queue, "pending_count": len(pending)})
@@ -306,6 +316,7 @@ def api_export():
     review_status = request.args.get("review_status", "all")
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()] if genes_raw else None
     try:
+        _ensure_db_schema()
         df = database.export_to_df(
             genes=genes, cancer_type=cancer_type,
             functional=functional, review_status=review_status,
@@ -329,6 +340,7 @@ def api_sync():
     try:
         drive_sync._drive_file_id = None
         synced = drive_sync.sync_db_from_drive(force=True)
+        _ensure_db_schema()
         return jsonify({"synced": synced, "message": "DB refreshed from Drive."})
     except Exception as e:
         return jsonify({"synced": False, "error": str(e)}), 500
