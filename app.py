@@ -177,6 +177,7 @@ def api_query():
     min_conf    = float(request.args.get("min_conf", 0.0))
     cancer_type = request.args.get("cancer_type", "all")
     functional  = request.args.get("functional",  "all")
+    review_status = request.args.get("review_status", "all")
     page        = max(1,   int(request.args.get("page",     1)))
     per_page    = min(100, int(request.args.get("per_page", 20)))
     if not genes_raw:
@@ -185,6 +186,7 @@ def api_query():
     try:
         result = database.query_papers(
             genes=genes, cancer_type=cancer_type, functional=functional,
+            review_status=review_status,
             min_conf=min_conf, page=page, per_page=per_page, db_path=_local_db(),
         )
         result["summaries"] = {
@@ -194,6 +196,40 @@ def api_query():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "rows": [], "total": 0, "summaries": {}}), 200
+
+@app.route("/api/review", methods=["POST"])
+def api_review():
+    auth = require_auth()
+    if auth: return auth
+    body = request.get_json(force=True) or {}
+    gene = (body.get("gene") or "").strip().upper()
+    pmid = str(body.get("pmid") or "").strip()
+    if not gene or not pmid:
+        return jsonify({"error": "gene and pmid are required"}), 400
+    try:
+        row = database.update_paper_review(
+            gene=gene,
+            pmid=pmid,
+            review_status=body.get("review_status", "unreviewed"),
+            review_label=body.get("review_label", ""),
+            review_notes=body.get("review_notes", ""),
+            reviewed_by=body.get("reviewed_by", request.remote_addr or ""),
+            db_path=_local_db(),
+        )
+        if row is None:
+            return jsonify({"error": "paper not found"}), 404
+
+        uploaded = False
+        upload_error = ""
+        try:
+            uploaded = drive_sync.upload_db_to_drive(_local_db())
+        except Exception as e:
+            upload_error = str(e)
+        return jsonify({"ok": True, "row": row, "uploaded": uploaded, "upload_error": upload_error})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/check")
 def api_check():
@@ -267,11 +303,13 @@ def api_export():
     min_conf    = float(request.args.get("min_conf", 0.0))
     cancer_type = request.args.get("cancer_type", "all")
     functional  = request.args.get("functional",  "all")
+    review_status = request.args.get("review_status", "all")
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()] if genes_raw else None
     try:
         df = database.export_to_df(
             genes=genes, cancer_type=cancer_type,
-            functional=functional, min_conf=min_conf, db_path=_local_db(),
+            functional=functional, review_status=review_status,
+            min_conf=min_conf, db_path=_local_db(),
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500

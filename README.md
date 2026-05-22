@@ -45,10 +45,10 @@ The current pipeline is best described as evidence-grounded extraction plus clas
    BioMistral-7B is used in the Colab/GPU worker to classify evidence into a structured JSON-like output. The Hugging Face website does not load the model.
 
 5. **Evidence-support scoring**
-   The current confidence field is an interpretable evidence-support score based on perturbation evidence, phenotype evidence, evidence depth, LLM/rule agreement, and penalties for weak evidence patterns. This is useful for ranking candidates, but it should not be interpreted as a calibrated probability yet.
+   The current confidence field is an interpretable evidence-support score based on perturbation evidence, phenotype evidence, evidence depth, LLM/rule agreement, and penalties for weak evidence patterns. The UI labels these scores as weak, moderate, or strong support so reviewers do not mistake the number for a calibrated probability.
 
 6. **Database and review UI**
-   Results are written into SQLite and served through a Flask website on Hugging Face Spaces.
+   Results are written into SQLite and served through a Flask website on Hugging Face Spaces. Reviewers can mark papers as unreviewed, needs review, or reviewed, add a scientific label, and save short notes.
 
 ![Evidence-ranked result table](docs/images/demo-results.png)
 
@@ -58,8 +58,11 @@ The web UI is designed for fast research review:
 
 - search one or more genes
 - filter by cancer type, functional label, and minimum confidence
+- filter by human review state
 - inspect evidence-ranked papers
 - view extracted evidence snippets
+- see review priority signals such as LLM/rule disagreement or weak extracted evidence
+- save reviewer labels and notes for individual papers
 - export CSV results
 - request new genes for later Colab processing
 - inspect the request queue
@@ -250,11 +253,9 @@ High-value next steps:
 
 1. Add a small manually reviewed gold-label set.
 2. Report precision, recall, F1, and disagreement cases.
-3. Display interpretable confidence sub-signals in the review UI.
-4. Add a verifier pass for low-confidence or rule/LLM-disagreement cases.
-5. Add a review-needed table to the website.
-6. Track reviewer corrections and use them for active learning.
-7. Add scheduled GitHub Actions for syntax checks and notebook secret scanning.
+3. Add a verifier pass for low-confidence or rule/LLM-disagreement cases.
+4. Use reviewer corrections to tune confidence thresholds and routing rules.
+5. Add scheduled GitHub Actions for syntax checks and notebook secret scanning.
 
 ## Limitations
 

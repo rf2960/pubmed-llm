@@ -98,6 +98,14 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
 .ev-lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;}
 .ev-txt{font-family:var(--mono);font-size:12px;color:var(--text);line-height:1.7;}
 .ev-note{font-size:13px;color:var(--muted);line-height:1.6;font-style:italic;}
+.review-box{margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);}
+.review-grid{display:grid;grid-template-columns:160px 160px 1fr 110px;gap:8px;align-items:start;}
+.review-grid select,.review-grid input{font-size:13px;padding:7px 9px;}
+.review-save{height:35px;border:1px solid var(--ab);background:var(--al);color:var(--accent);border-radius:6px;font-family:var(--sans);font-weight:500;cursor:pointer;}
+.review-save:hover{background:#dbeafe;}
+.review-msg{font-size:12px;color:var(--muted);margin-top:8px;}
+.bprio-high{background:var(--rl);color:var(--red);}.bprio-medium{background:var(--aml);color:var(--amber);}.bprio-low{background:var(--gl);color:var(--green);}.bprio-reviewed{background:var(--al);color:var(--accent);}
+@media (max-width:900px){.review-grid{grid-template-columns:1fr;}.review-save{width:100%;}}
 .pages{display:flex;align-items:center;justify-content:center;gap:6px;padding:16px;}
 .pgbtn{padding:6px 13px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;font-family:var(--sans);transition:all .12s;}
 .pgbtn:hover{border-color:var(--accent);color:var(--accent);}.pgbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -154,6 +162,15 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
           <select id="f-func">
             <option value="all">All papers</option><option value="true">Functional only</option>
             <option value="false">Non-functional only</option>
+          </select>
+        </div>
+        <div>
+          <label class="flabel">Review status</label>
+          <select id="f-review">
+            <option value="all">All review states</option>
+            <option value="unreviewed">Unreviewed</option>
+            <option value="needs_review">Needs review</option>
+            <option value="reviewed">Reviewed</option>
           </select>
         </div>
         <div>
@@ -260,7 +277,7 @@ function api(path, extra) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-const S = {page:1,perPage:25,genes:[],cancer:'all',func:'all',conf:0,total:0,pages:1};
+const S = {page:1,perPage:25,genes:[],cancer:'all',func:'all',review:'all',conf:0,total:0,pages:1};
 
 window.addEventListener('DOMContentLoaded', () => { loadStats(); setInterval(loadStats, 60000); });
 
@@ -299,6 +316,7 @@ async function doSearch(page) {
   if (!genes.length) { alert('Enter at least one gene symbol.'); return; }
   S.genes=genes; S.cancer=document.getElementById('f-cancer').value;
   S.func=document.getElementById('f-func').value;
+  S.review=document.getElementById('f-review').value;
   S.conf=parseFloat(document.getElementById('f-conf').value);
   S.page=page||1;
   const btn = document.querySelector('.btn-p');
@@ -306,7 +324,7 @@ async function doSearch(page) {
   try {
     const url = api('/api/query', {
       genes: genes.join(','), cancer_type: S.cancer,
-      functional: S.func, min_conf: S.conf,
+      functional: S.func, review_status: S.review, min_conf: S.conf,
       page: S.page, per_page: S.perPage
     });
     const d = await fetch(url).then(r=>r.json());
@@ -360,136 +378,201 @@ function submitGene(gene) {
 }
 
 function renderTable(rows, total) {
-  const wrap=document.getElementById('tbl-wrap');
-  if (!rows.length){wrap.style.display='none';return;}
-  wrap.style.display='block';
-  document.getElementById('tbl-title').textContent=`${fmt(total)} paper${total!==1?'s':''}`;
-  let html=`<table><thead><tr>
+  const wrap = document.getElementById('tbl-wrap');
+  if (!rows.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  document.getElementById('tbl-title').textContent = `${fmt(total)} paper${total !== 1 ? 's' : ''}`;
+  let html = `<table><thead><tr>
     <th>Gene</th><th>Title</th><th>Year</th><th>Cancer</th>
-    <th>Functional</th><th>Where</th><th>Confidence</th><th></th>
+    <th>Functional</th><th>Where</th><th>Confidence</th><th>Review</th><th></th>
   </tr></thead><tbody>`;
-  rows.forEach((row,i)=>{
-    const uid='r'+i, conf=parseFloat(row.confidence)||0;
-    const cc=conf>=.7?'var(--green)':conf>=.4?'var(--amber)':'var(--red)';
-    const fb=row.functional_study?`<span class="badge by">Yes</span>`:`<span class="badge bn">No</span>`;
-    const wb=row.where_functional==='both'?`<span class="badge bb">Both</span>`:
-             row.where_functional==='in_vitro'?`<span class="badge bvt">In vitro</span>`:
-             row.where_functional==='in_vivo'?`<span class="badge bvv">In vivo</span>`:
-             `<span class="badge bn">—</span>`;
-    const ct=row.cancer_type||'unk';
-    const cb=`<span class="badge b${ct==='pancreatic'?'panc':ct==='gi'?'gi':ct==='cancer'?'ca':'unk'}">${ct}</span>`;
-    const ttl=row.pubmed_link?`<a href="${row.pubmed_link}" target="_blank" rel="noopener">${esc(row.title)}</a>`:esc(row.title);
-    const dis=row.llm_rules_disagree?`<span class="bdis">⚠ disagree</span>`:'';
-    html+=`<tr>
-      <td class="tdg">${esc(row.gene||'')}</td>
-      <td class="tdt">${ttl}<div class="tdm">${esc(row.journal||'')}${row.doi?' · '+esc(row.doi):''}</div></td>
-      <td style="font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;">${esc(row.year||'')}</td>
+  rows.forEach((row, i) => {
+    const uid = 'r' + i;
+    const conf = parseFloat(row.confidence) || 0;
+    const cc = conf >= .8 ? 'var(--green)' : conf >= .6 ? 'var(--amber)' : 'var(--red)';
+    const label = row.confidence_label || (conf >= .8 ? 'strong' : conf >= .6 ? 'moderate' : 'weak');
+    const priority = row.review_priority || 'low';
+    const status = row.review_status || 'unreviewed';
+    const fb = row.functional_study ? `<span class="badge by">Yes</span>` : `<span class="badge bn">No</span>`;
+    const wb = row.where_functional === 'both' ? `<span class="badge bb">Both</span>` :
+             row.where_functional === 'in_vitro' ? `<span class="badge bvt">In vitro</span>` :
+             row.where_functional === 'in_vivo' ? `<span class="badge bvv">In vivo</span>` :
+             `<span class="badge bn">Unknown</span>`;
+    const ct = row.cancer_type || 'unk';
+    const cb = `<span class="badge b${ct === 'pancreatic' ? 'panc' : ct === 'gi' ? 'gi' : ct === 'cancer' ? 'ca' : 'unk'}">${esc(ct)}</span>`;
+    const ttl = row.pubmed_link ? `<a href="${attr(row.pubmed_link)}" target="_blank" rel="noopener">${esc(row.title)}</a>` : esc(row.title);
+    const dis = row.llm_rules_disagree ? `<span class="bdis">disagree</span>` : '';
+    html += `<tr>
+      <td class="tdg">${esc(row.gene || '')}</td>
+      <td class="tdt">${ttl}<div class="tdm">${esc(row.journal || '')}${row.doi ? ' - ' + esc(row.doi) : ''}</div></td>
+      <td style="font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;">${esc(row.year || '')}</td>
       <td>${cb}</td><td>${fb}${dis}</td><td>${wb}</td>
-      <td><div class="cbar"><div class="cbg"><div class="cfg" style="width:${Math.round(conf*100)}%;background:${cc};"></div></div>
-      <span class="cnum">${conf.toFixed(2)}</span></div></td>
-      <td><button class="xbtn" onclick="toggleEv('${uid}',this)">▸</button></td>
+      <td><div class="cbar"><div class="cbg"><div class="cfg" style="width:${Math.round(conf * 100)}%;background:${cc};"></div></div>
+      <span class="cnum">${conf.toFixed(2)}</span></div><div class="tdm">${esc(label)}</div></td>
+      <td><span class="badge bprio-${attr(priority)}">${esc(status)}</span></td>
+      <td><button class="xbtn" onclick="toggleEv('${uid}',this)">More</button></td>
     </tr>
-    <tr class="ev-row" id="${uid}"><td colspan="8" class="ev-cell">${buildEv(row)}</td></tr>`;
+    <tr class="ev-row" id="${uid}"><td colspan="9" class="ev-cell">${buildEv(row, uid)}</td></tr>`;
   });
-  document.getElementById('tbl-body').innerHTML=html+'</tbody></table>';
+  document.getElementById('tbl-body').innerHTML = html + '</tbody></table>';
 }
 
-function buildEv(row) {
-  const parts=[];
+function buildEv(row, uid) {
+  const parts = [];
   if (row.llm_reasoning) parts.push(`<div class="ev-lbl">LLM reasoning</div><div class="ev-note">${esc(row.llm_reasoning)}</div>`);
-  [['evidence_perturbation','Perturbation'],['evidence_in_vitro','In vitro'],
-   ['evidence_in_vivo','In vivo'],['evidence_crispr_screen','CRISPR screen']].forEach(([f,l])=>{
-    if (row[f]) parts.push(`<div class="ev-lbl" style="margin-top:${parts.length?'12px':'0'};">${l}</div>`
-      +row[f].split('|').filter(Boolean).map(x=>`<div class="ev-txt">• ${esc(x)}</div>`).join(''));
+  [['evidence_perturbation','Perturbation'], ['evidence_in_vitro','In vitro'],
+   ['evidence_in_vivo','In vivo'], ['evidence_crispr_screen','CRISPR screen']].forEach(([f, l]) => {
+    if (row[f]) {
+      parts.push(`<div class="ev-lbl" style="margin-top:${parts.length ? '12px' : '0'};">${l}</div>` +
+        row[f].split('|').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x)}</div>`).join(''));
+    }
   });
-  const meta=[
-    row.classified_by_llm!==undefined?`LLM:${row.classified_by_llm}`:null,
-    row.rules_functional!==undefined?`Rules:${row.rules_functional}`:null,
-    row.total_evidence_sents?`Evidence:${row.total_evidence_sents}`:null,
-    row.pmcid?`PMCID:${row.pmcid}`:null,
-  ].filter(Boolean).join(' · ');
+  const signals = (row.review_signals || []).map(x => `<span class="badge bprio-medium">${esc(x.replace(/_/g, ' '))}</span>`).join(' ');
+  const meta = [
+    row.classified_by_llm !== undefined ? `LLM: ${row.classified_by_llm}` : null,
+    row.rules_functional !== undefined ? `Rules: ${row.rules_functional}` : null,
+    row.total_evidence_sents ? `Evidence sentences: ${row.total_evidence_sents}` : null,
+    row.pmcid ? `PMCID: ${row.pmcid}` : null,
+  ].filter(Boolean).join(' - ');
+  if (signals) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review signals</div><div>${signals}</div>`);
   if (meta) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Diagnostics</div><div class="ev-txt">${esc(meta)}</div>`);
-  return parts.join('')||`<div class="ev-txt" style="color:var(--faint);">No evidence extracted.</div>`;
+  parts.push(reviewBox(row, uid));
+  return parts.join('') || `<div class="ev-txt" style="color:var(--faint);">No evidence extracted.</div>${reviewBox(row, uid)}`;
 }
 
-function toggleEv(uid,btn){
-  const open=document.getElementById(uid).classList.toggle('open');
-  btn.textContent=open?'▾':'▸';
+function reviewBox(row, uid) {
+  return `<div class="review-box">
+    <div class="ev-lbl">Human review</div>
+    <div class="review-grid">
+      ${sel(`rev-status-${uid}`, row.review_status || 'unreviewed', [
+        ['unreviewed','Unreviewed'], ['needs_review','Needs review'], ['reviewed','Reviewed']
+      ])}
+      ${sel(`rev-label-${uid}`, row.review_label || '', [
+        ['','No label'], ['functional','Functional'], ['not_functional','Not functional'], ['unclear','Unclear']
+      ])}
+      <input id="rev-notes-${uid}" type="text" value="${attr(row.review_notes || '')}" placeholder="Short reviewer note">
+      <button class="review-save" onclick="saveReview('${uid}', '${attr(row.gene || '')}', '${attr(row.pmid || '')}', this)">Save</button>
+    </div>
+    <div id="rev-msg-${uid}" class="review-msg">Priority: ${esc(row.review_priority || 'low')} - Confidence: ${esc(row.confidence_label || '')}</div>
+  </div>`;
 }
 
-function renderPages(page,pages){
-  const el=document.getElementById('pages');
-  if(pages<=1){el.innerHTML='';return;}
-  let h=`<button class="pgbtn" onclick="doSearch(${page-1})" ${page===1?'disabled':''}>◀</button>`;
-  const s=Math.max(1,page-2),e=Math.min(pages,page+2);
-  if(s>1)h+=`<button class="pgbtn" onclick="doSearch(1)">1</button>${s>2?'<span class="pginfo">…</span>':''}`;
-  for(let p=s;p<=e;p++)h+=`<button class="pgbtn ${p===page?'on':''}" onclick="doSearch(${p})">${p}</button>`;
-  if(e<pages)h+=`${e<pages-1?'<span class="pginfo">…</span>':''}<button class="pgbtn" onclick="doSearch(${pages})">${pages}</button>`;
-  h+=`<button class="pgbtn" onclick="doSearch(${page+1})" ${page===pages?'disabled':''}>▶</button>`;
-  h+=`<span class="pginfo">Page ${page} of ${pages}</span>`;
-  el.innerHTML=h;
+function sel(id, value, opts) {
+  return `<select id="${id}">${opts.map(([v, t]) => `<option value="${attr(v)}" ${v === value ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
 }
 
-function doExport(){
-  const genes=document.getElementById('gene-input').value
-    .split(/[\n,]+/).map(g=>g.trim().toUpperCase()).filter(Boolean);
-  if(!genes.length){alert('Enter at least one gene first.');return;}
-  window.location.href=api('/api/export',{
-    genes:genes.join(','),
-    cancer_type:document.getElementById('f-cancer').value,
-    functional:document.getElementById('f-func').value,
-    min_conf:document.getElementById('f-conf').value
+async function saveReview(uid, gene, pmid, btn) {
+  const msg = document.getElementById(`rev-msg-${uid}`);
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving';
+  try {
+    const d = await fetch(api('/api/review'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        gene,
+        pmid,
+        review_status: document.getElementById(`rev-status-${uid}`).value,
+        review_label: document.getElementById(`rev-label-${uid}`).value,
+        review_notes: document.getElementById(`rev-notes-${uid}`).value,
+        reviewed_by: 'website'
+      })
+    }).then(r => r.json());
+    if (d.error) throw new Error(d.error);
+    msg.style.color = d.uploaded ? 'var(--green)' : 'var(--amber)';
+    msg.textContent = d.uploaded ? 'Saved and uploaded to Drive.' : 'Saved locally. Drive upload did not complete; replace/upload DB before Space restart.';
+    loadStats();
+  } catch (e) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Save failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+function toggleEv(uid, btn) {
+  const open = document.getElementById(uid).classList.toggle('open');
+  btn.textContent = open ? 'Less' : 'More';
+}
+
+function renderPages(page, pages) {
+  const el = document.getElementById('pages');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  let h = `<button class="pgbtn" onclick="doSearch(${page - 1})" ${page === 1 ? 'disabled' : ''}>Prev</button>`;
+  const s = Math.max(1, page - 2), e = Math.min(pages, page + 2);
+  if (s > 1) h += `<button class="pgbtn" onclick="doSearch(1)">1</button>${s > 2 ? '<span class="pginfo">...</span>' : ''}`;
+  for (let p = s; p <= e; p++) h += `<button class="pgbtn ${p === page ? 'on' : ''}" onclick="doSearch(${p})">${p}</button>`;
+  if (e < pages) h += `${e < pages - 1 ? '<span class="pginfo">...</span>' : ''}<button class="pgbtn" onclick="doSearch(${pages})">${pages}</button>`;
+  h += `<button class="pgbtn" onclick="doSearch(${page + 1})" ${page === pages ? 'disabled' : ''}>Next</button>`;
+  h += `<span class="pginfo">Page ${page} of ${pages}</span>`;
+  el.innerHTML = h;
+}
+
+function doExport() {
+  const genes = document.getElementById('gene-input').value
+    .split(/[\n,]+/).map(g => g.trim().toUpperCase()).filter(Boolean);
+  if (!genes.length) { alert('Enter at least one gene first.'); return; }
+  window.location.href = api('/api/export', {
+    genes: genes.join(','),
+    cancer_type: document.getElementById('f-cancer').value,
+    functional: document.getElementById('f-func').value,
+    review_status: document.getElementById('f-review').value,
+    min_conf: document.getElementById('f-conf').value
   });
 }
 
-async function submitRequest(){
-  const gene=document.getElementById('req-gene').value.trim().toUpperCase();
-  if(!gene){alert('Enter a gene symbol.');return;}
-  const btn=document.getElementById('req-btn');
-  btn.disabled=true;btn.innerHTML='<span class="spin"></span> Submitting…';
-  const box=document.getElementById('req-result');
-  try{
-    const d=await fetch(api('/api/request'),{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({gene,max_papers:parseInt(document.getElementById('req-max').value)})
-    }).then(r=>r.json());
-    if(d.error){box.className='rbox err';box.style.display='block';box.textContent=d.error;return;}
-    const cls=d.status==='already_processed'?'info':d.status==='queued'?'ok':'warn';
-    box.className=`rbox ${cls}`;box.style.display='block';box.textContent=d.message;
-    if(d.status==='queued')loadStats();
-  }catch(e){box.className='rbox err';box.style.display='block';box.textContent='Network error: '+e.message;}
-  finally{btn.disabled=false;btn.textContent='Submit Request';}
+async function submitRequest() {
+  const gene = document.getElementById('req-gene').value.trim().toUpperCase();
+  if (!gene) { alert('Enter a gene symbol.'); return; }
+  const btn = document.getElementById('req-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Submitting...';
+  const box = document.getElementById('req-result');
+  try {
+    const d = await fetch(api('/api/request'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({gene, max_papers: parseInt(document.getElementById('req-max').value)})
+    }).then(r => r.json());
+    if (d.error) { box.className = 'rbox err'; box.style.display = 'block'; box.textContent = d.error; return; }
+    const cls = d.status === 'already_processed' ? 'info' : d.status === 'queued' ? 'ok' : 'warn';
+    box.className = `rbox ${cls}`; box.style.display = 'block'; box.textContent = d.message;
+    if (d.status === 'queued') loadStats();
+  } catch (e) { box.className = 'rbox err'; box.style.display = 'block'; box.textContent = 'Network error: ' + e.message; }
+  finally { btn.disabled = false; btn.textContent = 'Submit Request'; }
 }
 
-async function loadQueue(){
-  try{
-    const d=await fetch(api('/api/queue')).then(r=>r.json());
-    const tbody=document.getElementById('queue-body');
-    if(!d.queue||!d.queue.length){
-      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--faint);">No requests yet.</td></tr>';return;}
-    tbody.innerHTML=d.queue.map(q=>`<tr>
+async function loadQueue() {
+  try {
+    const d = await fetch(api('/api/queue')).then(r => r.json());
+    const tbody = document.getElementById('queue-body');
+    if (!d.queue || !d.queue.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--faint);">No requests yet.</td></tr>'; return;
+    }
+    tbody.innerHTML = d.queue.map(q => `<tr>
       <td style="font-weight:600;color:var(--text);font-family:var(--mono);">${esc(q.gene)}</td>
-      <td><span class="qs-${q.status}">${q.status}</span></td>
-      <td>${(q.requested_at||'').slice(0,16)}</td>
-      <td>${(q.started_at||'—').slice(0,16)}</td>
-      <td>${(q.finished_at||'—').slice(0,16)}</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.error||'')}</td>
+      <td><span class="qs-${attr(q.status)}">${esc(q.status)}</span></td>
+      <td>${esc((q.requested_at || '').slice(0, 16))}</td>
+      <td>${esc((q.started_at || '-').slice(0, 16))}</td>
+      <td>${esc((q.finished_at || '-').slice(0, 16))}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.error || '')}</td>
     </tr>`).join('');
-    document.getElementById('tab-q').textContent=d.pending_count>0?`Queue (${d.pending_count})`:'Queue';
-  }catch(e){
-    document.getElementById('queue-body').innerHTML=
-      `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--red);">Error: ${esc(e.message)}</td></tr>`;}
+    document.getElementById('tab-q').textContent = d.pending_count > 0 ? `Queue (${d.pending_count})` : 'Queue';
+  } catch (e) {
+    document.getElementById('queue-body').innerHTML =
+      `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--red);">Error: ${esc(e.message)}</td></tr>`;
+  }
 }
 
-function showEmpty(msg){
-  document.getElementById('tbl-wrap').style.display='none';
-  document.getElementById('gcards').style.display='none';
-  const el=document.getElementById('results-empty');
-  el.style.display='block';el.innerHTML=`<div class="empty-icon">⚠️</div>${esc(msg)}`;
+function showEmpty(msg) {
+  document.getElementById('tbl-wrap').style.display = 'none';
+  document.getElementById('gcards').style.display = 'none';
+  const el = document.getElementById('results-empty');
+  el.style.display = 'block'; el.innerHTML = `<div class="empty-icon">DNA</div>${esc(msg)}`;
 }
 
-function fmt(n){return(n||0).toLocaleString();}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-</script>
+function fmt(n) { return (n || 0).toLocaleString(); }
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function attr(s) { return esc(s).replace(/'/g, '&#39;'); }</script>
 </body>
 </html>

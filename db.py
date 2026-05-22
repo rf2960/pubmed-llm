@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS papers (
     evidence_in_vivo          TEXT,
     evidence_crispr_screen    TEXT,
     total_evidence_sents      INTEGER,
+    review_status             TEXT DEFAULT 'unreviewed',
+    review_label              TEXT,
+    review_notes              TEXT,
+    reviewed_by               TEXT,
+    reviewed_at               TEXT,
     processed_at              TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (gene, pmid)
 );
@@ -99,9 +104,18 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_papers_functional ON papers(functional_study);",
     "CREATE INDEX IF NOT EXISTS idx_papers_cancer     ON papers(cancer_type);",
     "CREATE INDEX IF NOT EXISTS idx_papers_confidence ON papers(confidence);",
+    "CREATE INDEX IF NOT EXISTS idx_papers_review     ON papers(review_status);",
     "CREATE INDEX IF NOT EXISTS idx_queue_status      ON request_queue(status);",
     "CREATE INDEX IF NOT EXISTS idx_queue_gene        ON request_queue(gene);",
 ]
+
+_PAPER_MIGRATIONS = {
+    "review_status": "TEXT DEFAULT 'unreviewed'",
+    "review_label": "TEXT",
+    "review_notes": "TEXT",
+    "reviewed_by": "TEXT",
+    "reviewed_at": "TEXT",
+}
 
 
 # Connection
@@ -131,6 +145,12 @@ def init_db(db_path: str = None):
         conn.execute(_CREATE_GENES)
         conn.execute(_CREATE_SKIPPED)
         conn.execute(_CREATE_QUEUE)
+        paper_cols = {
+            row["name"] for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+        }
+        for col, decl in _PAPER_MIGRATIONS.items():
+            if col not in paper_cols:
+                conn.execute(f"ALTER TABLE papers ADD COLUMN {col} {decl}")
         for idx in _INDEXES:
             conn.execute(idx)
     print(f"[DB] Initialized at {db_path or DB_PATH}")
@@ -143,7 +163,12 @@ def upsert_paper(row: dict, db_path: str = None):
     ph     = ", ".join("?" * len(cols))
     cn     = ", ".join(cols)
     vals   = [int(v) if isinstance(v, bool) else v for v in (row[c] for c in cols)]
-    sql    = f"INSERT OR REPLACE INTO papers ({cn}) VALUES ({ph})"
+    update_cols = [c for c in cols if c not in ("gene", "pmid")]
+    update_sql = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
+    sql    = f"""
+        INSERT INTO papers ({cn}) VALUES ({ph})
+        ON CONFLICT(gene, pmid) DO UPDATE SET {update_sql}
+    """
     with get_conn(db_path) as conn:
         conn.execute(sql, vals)
 
@@ -154,7 +179,12 @@ def upsert_papers_bulk(rows: list, db_path: str = None):
     cols  = [c for c in rows[0].keys() if c != "processed_at"]
     ph    = ", ".join("?" * len(cols))
     cn    = ", ".join(cols)
-    sql   = f"INSERT OR REPLACE INTO papers ({cn}) VALUES ({ph})"
+    update_cols = [c for c in cols if c not in ("gene", "pmid")]
+    update_sql = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
+    sql   = f"""
+        INSERT INTO papers ({cn}) VALUES ({ph})
+        ON CONFLICT(gene, pmid) DO UPDATE SET {update_sql}
+    """
     def clean(r):
         return [int(v) if isinstance(v, bool) else v for v in (r.get(c) for c in cols)]
     with get_conn(db_path) as conn:
@@ -207,10 +237,65 @@ def get_processed_pmids(gene: str, db_path: str = None) -> set:
     return paper_ids | skip_ids
 
 
+def _text_present(value) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _confidence_label(row: dict) -> str:
+    conf = float(row.get("confidence") or 0)
+    if conf >= 0.80:
+        return "strong"
+    if conf >= 0.60:
+        return "moderate"
+    return "weak"
+
+
+def _review_signals(row: dict) -> list:
+    signals = []
+    conf = float(row.get("confidence") or 0)
+    functional = bool(row.get("functional_study"))
+    has_perturbation = _text_present(row.get("evidence_perturbation"))
+    total_evidence = int(row.get("total_evidence_sents") or 0)
+
+    if row.get("llm_rules_disagree"):
+        signals.append("llm_rules_disagree")
+    if 0.45 <= conf <= 0.70:
+        signals.append("borderline_confidence")
+    if functional and not has_perturbation:
+        signals.append("functional_without_perturbation_evidence")
+    if total_evidence == 0:
+        signals.append("no_extracted_evidence")
+    if not row.get("classified_by_llm"):
+        signals.append("rules_only")
+    return signals
+
+
+def _review_priority(row: dict) -> str:
+    status = row.get("review_status") or "unreviewed"
+    if status == "reviewed":
+        return "reviewed"
+    signals = _review_signals(row)
+    if "llm_rules_disagree" in signals or "functional_without_perturbation_evidence" in signals:
+        return "high"
+    if signals:
+        return "medium"
+    return "low"
+
+
+def annotate_paper_row(row: dict) -> dict:
+    out = dict(row)
+    out["review_status"] = out.get("review_status") or "unreviewed"
+    out["confidence_label"] = _confidence_label(out)
+    out["review_priority"] = _review_priority(out)
+    out["review_signals"] = _review_signals(out)
+    return out
+
+
 def query_papers(
     genes:       list,
     cancer_type: str  = "all",
     functional:  str  = "all",
+    review_status: str = "all",
     min_conf:    float = 0.0,
     page:        int  = 1,
     per_page:    int  = 20,
@@ -227,6 +312,8 @@ def query_papers(
         where.append("functional_study = 1")
     elif functional == "false":
         where.append("functional_study = 0")
+    if review_status != "all":
+        where.append("COALESCE(review_status, 'unreviewed') = ?"); params.append(review_status)
     if min_conf > 0:
         where.append("confidence >= ?"); params.append(min_conf)
 
@@ -246,7 +333,7 @@ def query_papers(
         "page":     page,
         "per_page": per_page,
         "pages":    max(1, (total + per_page - 1) // per_page),
-        "rows":     [dict(r) for r in rows],
+        "rows":     [annotate_paper_row(dict(r)) for r in rows],
     }
 
 
@@ -282,7 +369,8 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
         ).fetchone()
         top = conn.execute(
             """SELECT pmid, title, year, journal, pubmed_link, confidence,
-                      llm_reasoning, cancer_type, in_vitro, in_vivo, where_functional
+                      llm_reasoning, cancer_type, in_vitro, in_vivo, where_functional,
+                      review_status, review_label
                FROM papers WHERE gene=? AND functional_study=1 AND confidence>=?
                ORDER BY confidence DESC LIMIT 5""",
             (g, min_conf)
@@ -300,7 +388,7 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
         "both":          int(loc["both"]        or 0),
         "methods":       {k: int(methods[k] or 0) for k in
                           ["knockout","knockdown","shrna","sirna","crispr","crispr_screen"]},
-        "top_papers":    [dict(r) for r in top],
+        "top_papers":    [annotate_paper_row(dict(r)) for r in top],
         "already_processed": gene_is_processed(g, db_path),
     }
 
@@ -317,6 +405,9 @@ def db_stats(db_path: str = None) -> dict:
             "SELECT cancer_type, COUNT(*) as n FROM papers WHERE functional_study=1 GROUP BY cancer_type"
         ).fetchall()
         all_g  = conn.execute("SELECT gene FROM genes ORDER BY last_run_at DESC").fetchall()
+        review = conn.execute(
+            "SELECT COALESCE(review_status, 'unreviewed') as status, COUNT(*) as n FROM papers GROUP BY COALESCE(review_status, 'unreviewed')"
+        ).fetchall()
 
     return {
         "total_papers":          total,
@@ -324,6 +415,7 @@ def db_stats(db_path: str = None) -> dict:
         "functional_papers":     func,
         "top_genes":             [{"gene": r["gene"], "count": r["n"]} for r in top],
         "cancer_type_breakdown": {r["cancer_type"]: r["n"] for r in cancer},
+        "review_status_breakdown": {r["status"]: r["n"] for r in review},
         "all_genes":             [r["gene"] for r in all_g],
     }
 
@@ -332,6 +424,7 @@ def export_to_df(
     genes:       list  = None,
     cancer_type: str   = "all",
     functional:  str   = "all",
+    review_status: str = "all",
     min_conf:    float = 0.0,
     db_path:     str   = None,
 ) -> pd.DataFrame:
@@ -346,6 +439,8 @@ def export_to_df(
         where.append("functional_study = 1")
     elif functional == "false":
         where.append("functional_study = 0")
+    if review_status != "all":
+        where.append("COALESCE(review_status, 'unreviewed') = ?"); params.append(review_status)
     if min_conf > 0:
         where.append("confidence >= ?"); params.append(min_conf)
 
@@ -385,8 +480,60 @@ def export_to_df(
         "knockout", "knockdown", "shrna", "sirna", "crispr", "crispr_screen",
         "confidence", "evidence_functional_study", "evidence_in_vitro",
         "evidence_in_vivo", "evidence_crispr_screen", "overall_decision",
+        "review_status", "review_label", "review_notes", "reviewed_by", "reviewed_at",
     ]
     return df[[c for c in export_cols if c in df.columns]]
+
+
+def update_paper_review(
+    gene: str,
+    pmid: str,
+    review_status: str = "unreviewed",
+    review_label: str = "",
+    review_notes: str = "",
+    reviewed_by: str = "",
+    db_path: str = None,
+) -> Optional[dict]:
+    allowed_status = {"unreviewed", "needs_review", "reviewed"}
+    allowed_label = {"", "functional", "not_functional", "unclear"}
+    status = (review_status or "unreviewed").strip().lower()
+    label = (review_label or "").strip().lower()
+    if status not in allowed_status:
+        raise ValueError(f"Invalid review_status: {review_status}")
+    if label not in allowed_label:
+        raise ValueError(f"Invalid review_label: {review_label}")
+
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            "SELECT gene, pmid FROM papers WHERE gene=? AND pmid=?",
+            (gene.upper().strip(), str(pmid).strip()),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            """
+            UPDATE papers
+            SET review_status=?,
+                review_label=?,
+                review_notes=?,
+                reviewed_by=?,
+                reviewed_at=datetime('now')
+            WHERE gene=? AND pmid=?
+            """,
+            (
+                status,
+                label or None,
+                review_notes.strip(),
+                reviewed_by.strip(),
+                gene.upper().strip(),
+                str(pmid).strip(),
+            ),
+        )
+        updated = conn.execute(
+            "SELECT * FROM papers WHERE gene=? AND pmid=?",
+            (gene.upper().strip(), str(pmid).strip()),
+        ).fetchone()
+        return annotate_paper_row(dict(updated)) if updated else None
 
 
 # Request queue 
@@ -525,5 +672,10 @@ def upsert_papers_bulk(rows: list, db_path: str = None):
         cols  = [c for c in cleaned[0].keys() if c != "processed_at" and c in table_cols]
         ph    = ", ".join("?" * len(cols))
         cn    = ", ".join(cols)
-        sql   = f"INSERT OR REPLACE INTO papers ({cn}) VALUES ({ph})"
+        update_cols = [c for c in cols if c not in ("gene", "pmid")]
+        update_sql = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
+        sql   = f"""
+            INSERT INTO papers ({cn}) VALUES ({ph})
+            ON CONFLICT(gene, pmid) DO UPDATE SET {update_sql}
+        """
         conn.executemany(sql, [[r.get(c) for c in cols] for r in cleaned])

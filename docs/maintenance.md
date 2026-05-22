@@ -33,9 +33,29 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 | Paper database | SQLite `papers` | Stores extracted paper-level evidence. |
 | Gene summaries | SQLite `genes` | Stores per-gene paper/function counts and last run time. |
 | Worker pipeline | `pipeline.py` | PubMed search, full-text fetch, evidence extraction, rules, LLM classification. |
+| Human review API | `app.py` `/api/review` | Saves reviewer status, label, notes, and reviewer metadata for a paper. |
 | Queue worker | `scripts/process_queue.py` | Processes pending queue requests in controlled batches. |
 | Monthly refresh | `scripts/update_existing_genes.py` | Refreshes existing genes for new PubMed papers. |
 | Status check | `scripts/check_queue_status.py` | Prints DB and queue status. |
+
+## Human Review And Confidence
+
+The confidence score is an evidence-support score, not a calibrated probability.
+The website displays a weak/moderate/strong label beside the numeric score and
+adds review-priority signals when the row looks risky, such as LLM/rule
+disagreement, weak extracted evidence, or a functional label without perturbation
+evidence.
+
+Use the expanded paper row in the website to set:
+
+- `review_status`: `unreviewed`, `needs_review`, or `reviewed`
+- `review_label`: `functional`, `not_functional`, `unclear`, or blank
+- `review_notes`: short reviewer notes
+
+Reviewer fields are stored in the same SQLite DB. Future worker reruns preserve
+existing review fields when updating paper evidence. If the website cannot
+upload the DB back to Drive, the review is saved only in the running Space
+container; replace/upload the Drive DB before restarting the Space.
 
 ## Configure Secrets Safely
 
