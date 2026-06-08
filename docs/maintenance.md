@@ -135,7 +135,7 @@ os.environ["GOOGLE_DRIVE_DB_FILE_ID"] = userdata.get("GOOGLE_DRIVE_DB_FILE_ID")
 Run this before processing:
 
 ```bash
-python scripts/check_queue_status.py \
+python -u scripts/check_queue_status.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
 ```
 
@@ -156,7 +156,7 @@ For the current backlog, do not process all queued genes in one run.
 Start with a small smoke test:
 
 ```bash
-python scripts/process_queue.py \
+python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --max-requests 1 \
@@ -168,7 +168,7 @@ python scripts/process_queue.py \
 If that succeeds, increase gradually:
 
 ```bash
-python scripts/process_queue.py \
+python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --max-requests 3 \
@@ -179,7 +179,7 @@ python scripts/process_queue.py \
 For a larger batch on a stable GPU machine:
 
 ```bash
-python scripts/process_queue.py \
+python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --max-requests 5 \
@@ -192,7 +192,7 @@ python scripts/process_queue.py \
 If Colab GPU is unavailable, you can run a faster lower-quality triage:
 
 ```bash
-python scripts/process_queue.py \
+python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --max-requests 5 \
@@ -209,7 +209,7 @@ alphabetical gene order, so `0`, `5`, `10`, `15`, and so on are safe chunk
 boundaries even after earlier batches update `last_run_at`.
 
 ```bash
-python scripts/update_existing_genes.py \
+python -u scripts/update_existing_genes.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --start-at 0 \
@@ -221,7 +221,7 @@ python scripts/update_existing_genes.py \
 Next chunk:
 
 ```bash
-python scripts/update_existing_genes.py \
+python -u scripts/update_existing_genes.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --start-at 5 \
@@ -235,7 +235,7 @@ The pipeline skips PMIDs already present in SQLite, so monthly refresh should fo
 Verify the same chunk after it finishes:
 
 ```bash
-python scripts/check_gene_refresh.py \
+python -u scripts/check_gene_refresh.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --start-at 0 \
   --max-genes 5
@@ -248,7 +248,7 @@ For a full monthly operating guide, see [`docs/monthly-refresh.md`](monthly-refr
 If Colab disconnects, some requests may remain `processing`. Reset them:
 
 ```bash
-python scripts/process_queue.py \
+python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --reset-processing \
   --max-requests 0
@@ -257,7 +257,7 @@ python scripts/process_queue.py \
 If requests are marked `error` after a code or credential fix, retry them:
 
 ```bash
-python scripts/process_queue.py \
+python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --retry-errors \
   --max-requests 1 \

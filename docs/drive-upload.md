@@ -27,7 +27,6 @@ SA_KEY_PATH = f"{DRIVE_FOLDER}/service-account.json"
 pubmed_llm/
   README_FOR_DRIVE.md
   pubmed_llm_maintenance_runner.ipynb
-  pubmed_llm.ipynb
   pipeline.py
   db.py
   drive_sync.py
@@ -46,20 +45,24 @@ pubmed_llm/
     .gitkeep
   secrets/
     README.md
-  hf_space/
-    README_HF_SPACE.md
-    app.py
-    db.py
-    drive_sync.py
-    Dockerfile
-    requirements.txt
-    templates/
-      index.html
+  archive/
+    notebooks/
+    old_databases/
+    old_outputs/
+    old_hf_space/
+    old_logs/
 ```
 
 ## Why The Bundle Is Ignored
 
-`drive_upload/` is intentionally gitignored because it is a generated package that duplicates source files and includes a database snapshot. Keep the canonical source in the repo root; regenerate or refresh the bundle when you need to upload to Drive.
+`drive_upload/` is intentionally gitignored because it is a generated package
+that duplicates source files and may include a database snapshot. Keep the
+canonical source in the repo root; regenerate or refresh the bundle when you
+need to upload to Drive.
+
+Do not keep legacy notebooks or stale Hugging Face deployment copies in the
+active Drive root. Put them under `archive/` so new maintainers do not run or
+deploy the wrong version.
 
 ## Running Maintenance From Drive
 
@@ -85,13 +88,20 @@ drive.mount("/content/drive")
 Then check the queue:
 
 ```python
-!python scripts/check_queue_status.py
+!python -u scripts/check_queue_status.py
 ```
 
 Process a small batch:
 
 ```python
-!python scripts/process_queue.py --max-requests 1 --max-papers 25 --reset-processing --upload-at-end
+!python -u scripts/process_queue.py --max-requests 1 --max-papers 25 --reset-processing --upload-at-end
+```
+
+For monthly refresh, process stable chunks and verify each chunk:
+
+```python
+!python -u scripts/update_existing_genes.py --start-at 0 --max-genes 15 --max-papers 500 --upload
+!python -u scripts/check_gene_refresh.py --start-at 0 --max-genes 15 --since 2026-06-08
 ```
 
 ## Secret Handling

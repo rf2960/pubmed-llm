@@ -108,10 +108,12 @@ Monthly refresh uses the same pipeline but starts from existing genes already in
 | `scripts/check_gene_refresh.py` | Verifies selected genes after a monthly refresh chunk. |
 | `scripts/common.py` | Shared script configuration, logging, DB path, cache path, and upload helpers. |
 | `pubmed_llm_maintenance_runner.ipynb` | Recommended Colab notebook for non-coding maintainers. |
-| `pubmed_llm.ipynb` | Older notebook kept for reference/backward compatibility. |
+| `README_FOR_DRIVE.md` | Start-here handoff guide for the Google Drive working folder. |
+| `archive/notebooks/pubmed_llm_legacy_2026-05.ipynb` | Older notebook kept only for historical reference. |
 | `requirements.txt` | Lightweight website dependencies. |
 | `requirements-worker.txt` | Worker/GPU dependencies. |
 | `docs/` | Maintenance, deployment, monthly refresh, and system documentation. |
+| `docs/drive-cleanup.md` | Checklist for keeping the Drive workspace navigable. |
 | `docs/images/` | README/demo visuals. |
 | `gene_function_lab/gene_function_lab.db` | Local DB snapshot. Do not treat this as a secret, but avoid unnecessary commits. |
 
