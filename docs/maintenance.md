@@ -200,7 +200,9 @@ Use this only when you need a rough pass. LLM-assisted results are preferred for
 
 ## Monthly Refresh Existing Genes
 
-Refresh existing genes in chunks:
+Refresh existing genes in chunks. By default, `--start-at` uses stable
+alphabetical gene order, so `0`, `5`, `10`, `15`, and so on are safe chunk
+boundaries even after earlier batches update `last_run_at`.
 
 ```bash
 python scripts/update_existing_genes.py \

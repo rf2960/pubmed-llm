@@ -14,10 +14,16 @@ from common import add_common_args, configure_db_runtime, configure_logging, con
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Refresh existing genes for newly published papers.")
     add_common_args(parser)
-    parser.add_argument("--start-at", type=int, default=0, help="Start index in db_stats()['all_genes'].")
+    parser.add_argument("--start-at", type=int, default=0, help="Start index in the selected stable gene order.")
     parser.add_argument("--max-genes", type=int, default=5, help="Maximum genes to refresh in this run.")
     parser.add_argument("--max-papers", type=int, default=50, help="Maximum new PMIDs to process per gene.")
     parser.add_argument("--genes", nargs="*", default=None, help="Optional explicit gene list to refresh.")
+    parser.add_argument(
+        "--order",
+        choices=["gene", "last-run"],
+        default="gene",
+        help="Gene order for --start-at slicing. Default is stable alphabetical order.",
+    )
     parser.add_argument("--upload", action="store_true", help="Upload DB through drive_sync after the batch.")
     parser.add_argument("--dry-run", action="store_true", help="Print selected genes without processing.")
     return parser
@@ -46,10 +52,13 @@ def main() -> int:
     if args.genes:
         genes = [g.upper().strip() for g in args.genes if g.strip()]
     else:
-        stats = db.db_stats(db_path)
-        all_genes = stats["all_genes"]
+        order_sql = "gene COLLATE NOCASE ASC" if args.order == "gene" else "last_run_at DESC"
+        with db.get_conn(db_path) as conn:
+            rows = conn.execute(f"SELECT gene FROM genes ORDER BY {order_sql}").fetchall()
+        all_genes = [r["gene"] for r in rows]
         genes = all_genes[args.start_at : args.start_at + args.max_genes]
 
+    logging.info("Gene order: %s", args.order)
     logging.info("Selected %s gene(s): %s", len(genes), ", ".join(genes) or "none")
     if not genes:
         return 0
