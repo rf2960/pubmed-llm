@@ -16,7 +16,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 # Entrez
-Entrez.email       = "ssd2184@columbia.edu"
+Entrez.email       = os.environ.get("ENTREZ_EMAIL", "your_email@example.com")
 Entrez.tool        = "functional-study-db"
 Entrez.sleep_between_tries = True
 Entrez.sleep_duration      = 0.4

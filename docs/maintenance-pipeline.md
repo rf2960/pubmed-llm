@@ -45,6 +45,7 @@ The updated code now:
 - marks non-cancer skipped PMIDs in SQLite when possible
 - processes queue requests in bounded batches instead of an endless Colab loop
 - refreshes existing genes in configurable chunks
+- verifies monthly refresh chunks with `scripts/check_gene_refresh.py`
 
 ## Why Colab Can Be Slow
 
@@ -68,6 +69,7 @@ For Colab:
 - Use `MAX_REQUESTS_THIS_RUN` in notebook Cell 5.
 - Use `MAX_NEW_PAPERS_PER_GENE = 50` or `100` for first-pass triage.
 - Run monthly refresh in chunks with `START_AT_INDEX` and `MAX_GENES_THIS_RUN`.
+- Verify each completed refresh chunk before moving to the next `START_AT`.
 - Avoid leaving the worker polling forever when the queue is empty.
 
 For heavy queue backlogs:

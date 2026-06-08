@@ -2,7 +2,7 @@
 
 This is the operational guide for keeping the Hugging Face website database current.
 
-Current clean baseline as of May 22, 2026:
+Example clean baseline after the May 2026 backlog cleanup:
 
 - 23,973 papers
 - 255 genes
@@ -10,6 +10,9 @@ Current clean baseline as of May 22, 2026:
 - 0 pending queue requests
 - 0 processing requests
 - 0 error requests
+
+Do not treat those numbers as fixed. The current website counts should increase
+after monthly refresh runs.
 
 ## Pipeline Summary
 
@@ -37,6 +40,7 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 | Queue worker | `scripts/process_queue.py` | Processes pending queue requests in controlled batches. |
 | Monthly refresh | `scripts/update_existing_genes.py` | Refreshes existing genes for new PubMed papers. |
 | Status check | `scripts/check_queue_status.py` | Prints DB and queue status. |
+| Refresh verification | `scripts/check_gene_refresh.py` | Confirms the selected refresh chunk and last run times. |
 
 ## Human Review And Confidence
 
@@ -227,6 +231,17 @@ python scripts/update_existing_genes.py \
 ```
 
 The pipeline skips PMIDs already present in SQLite, so monthly refresh should focus on newly found papers.
+
+Verify the same chunk after it finishes:
+
+```bash
+python scripts/check_gene_refresh.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --start-at 0 \
+  --max-genes 5
+```
+
+For a full monthly operating guide, see [`docs/monthly-refresh.md`](monthly-refresh.md).
 
 ## Failure Recovery
 

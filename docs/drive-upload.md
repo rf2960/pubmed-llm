@@ -34,6 +34,7 @@ pubmed_llm/
   requirements-worker.txt
   scripts/
     check_queue_status.py
+    check_gene_refresh.py
     process_queue.py
     update_existing_genes.py
     common.py

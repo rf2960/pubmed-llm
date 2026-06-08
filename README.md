@@ -2,218 +2,160 @@
 
 Evidence-grounded biomedical literature extraction for functional cancer gene analysis.
 
-This project helps a research team search PubMed-derived literature for papers that may contain functional evidence about cancer-related genes. The current version combines rule-based biomedical signal detection with one LLM-assisted classifier to identify candidate evidence from abstracts and available full text, then stores structured results in a searchable SQLite database and review website.
+This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, writes structured evidence into SQLite, and syncs the database back to the website.
 
-It is not a generic vector-database RAG system, not a fully autonomous agent platform, and not clinical decision support. The goal is to make literature review faster, more auditable, and easier to prioritize for human scientific review.
+The project is intentionally practical: it is a maintainable evidence triage system, not a generic RAG product, not an autonomous agent platform, and not clinical decision support.
 
 ![Gene Function Lab demo homepage](docs/images/demo-home.png)
 
-## Why This Matters
+## Current System In One Page
 
-Functional cancer gene review is slow because relevant papers often describe different experimental systems, perturbation methods, phenotype assays, and cancer contexts. A gene may appear in expression-only studies, review papers, prognostic association papers, CRISPR screens, xenografts, or direct mechanistic experiments. These categories matter scientifically, but they are hard to triage manually at scale.
+```mermaid
+flowchart LR
+    A["Lab member searches or requests gene"] --> B["Hugging Face Flask website"]
+    B --> C["SQLite request_queue"]
+    C --> D["Colab or GPU worker scripts"]
+    D --> E["PubMed and PMC retrieval"]
+    E --> F["Rule-based evidence detection"]
+    F --> G["BioMistral-7B classifier"]
+    G --> H["SQLite papers and genes tables"]
+    H --> I["Google Drive DB file"]
+    I --> B
+    B --> J["Search, evidence table, review notes, CSV export"]
+```
 
-This repository turns those papers into structured evidence records:
+The hosted website is CPU-only. The BioMistral model runs in Colab or another GPU environment.
 
-- gene and PMID
-- cancer type
-- functional study yes/no candidate label
-- in vitro and in vivo signals
-- perturbation method signals such as knockout, knockdown, siRNA, shRNA, CRISPR, and CRISPR screens
-- extracted evidence sentences
-- confidence score and LLM/rule agreement signals
-- queue state for genes requested through the web UI
+## What It Does
 
-Current maintained test deployment:
+The current version combines rule-based evidence detection with an LLM classifier to identify candidate functional evidence from biomedical papers. For each gene/paper pair, the system stores:
 
-- Hugging Face Space: [ReyaLabColumbia/reyalab-test](https://huggingface.co/spaces/ReyaLabColumbia/reyalab-test)
-- Latest processed baseline, May 22, 2026: 23,973 papers, 255 genes, 3,404 functional papers, 0 pending queue requests, 0 error requests
+- PubMed metadata: PMID, title, journal, year, DOI, links
+- cancer context and study-type signals
+- candidate functional-study label
+- in vitro / in vivo evidence signals
+- perturbation signals such as knockout, knockdown, siRNA, shRNA, CRISPR, and CRISPR screen
+- extracted evidence snippets
+- LLM/rule disagreement diagnostics
+- an evidence-support confidence score
+- human review status, label, reviewer notes, and reviewer timestamp
 
-## Current Technical Approach
-
-The current pipeline is best described as evidence-grounded extraction plus classification:
-
-1. **PubMed retrieval**
-   `pipeline.py` searches PubMed for a target gene and cancer/function-related terms, then fetches metadata and available full text from PMC when possible.
-
-2. **Rule-based biomedical signal detection**
-   Regular expressions and domain-specific keyword logic detect perturbation methods, experimental systems, phenotype language, cancer context, and review/association-like patterns.
-
-3. **Evidence sentence extraction**
-   Candidate evidence sentences are selected from abstracts/full text around gene mentions and functional-study signals.
-
-4. **LLM-assisted classification**
-   BioMistral-7B is used in the Colab/GPU worker to classify evidence into a structured JSON-like output. The Hugging Face website does not load the model.
-
-5. **Evidence-support scoring**
-   The current confidence field is an interpretable evidence-support score based on perturbation evidence, phenotype evidence, evidence depth, LLM/rule agreement, and penalties for weak evidence patterns. The UI labels these scores as weak, moderate, or strong support so reviewers do not mistake the number for a calibrated probability.
-
-6. **Database and review UI**
-   Results are written into SQLite and served through a Flask website on Hugging Face Spaces. Reviewers can mark papers as unreviewed, needs review, or reviewed, add a scientific label, and save short notes.
+The confidence score is not a calibrated probability. It is an interpretable evidence-support score used to prioritize review. The website labels rows as weak, moderate, or strong support and highlights cases that need human attention.
 
 ![Evidence-ranked result table](docs/images/demo-results.png)
 
-## What The Website Shows
+## Why This Exists
 
-The web UI is designed for fast research review:
+Functional cancer gene review is slow because papers can describe many different kinds of evidence: expression changes, association studies, pathway mentions, perturbation experiments, screens, animal models, reviews, and clinical correlations. This project helps reviewers separate likely functional studies from weaker or indirect evidence so expert review time is spent on the most useful papers first.
+
+Primary users:
+
+- lab members searching gene-level evidence
+- maintainers processing requested genes
+- researchers reviewing and labeling candidate papers
+- future contributors improving the extraction pipeline
+
+## Website Features
+
+Existing website features:
 
 - search one or more genes
-- filter by cancer type, functional label, and minimum confidence
-- filter by human review state
+- filter by cancer type, study type, review status, and minimum confidence
+- view per-gene summary cards
 - inspect evidence-ranked papers
-- view extracted evidence snippets
-- see review priority signals such as LLM/rule disagreement or weak extracted evidence
-- save reviewer labels and notes for individual papers
+- expand rows to see review signals and diagnostics
+- save human review status, label, and notes
 - export CSV results
-- request new genes for later Colab processing
-- inspect the request queue
+- request new genes
+- inspect recent queue entries
 
-The live Hugging Face Space is password protected. The repository screenshots show the authenticated review workflow without exposing private access credentials.
+The live Space is password protected. Store the password in the Hugging Face `APP_PASSWORD` secret. Do not commit passwords or screenshots containing credentials.
 
-## Architecture
+## Backend Workflow
 
-```text
-Researcher / Lab member
-  -> Hugging Face Spaces Flask website
-  -> SQLite DB snapshot synced from Google Drive
+Gene requests and maintenance are handled by scripts rather than manually editing notebook code.
 
-Monthly or on-demand maintenance
-  -> Google Colab notebook with GPU
-  -> PubMed + PMC retrieval
-  -> rule-based evidence detection
-  -> BioMistral-7B classifier
-  -> SQLite DB update
-  -> Google Drive / website sync
+```mermaid
+flowchart TD
+    A["Website request form"] --> B["request_queue status=pending"]
+    B --> C["scripts/check_queue_status.py"]
+    B --> D["scripts/process_queue.py"]
+    D --> E["pipeline.analyze_gene"]
+    E --> F["PubMed search IDs"]
+    F --> G["Fetch metadata and PMC text"]
+    G --> H["Extract evidence sentences"]
+    H --> I["Rules plus BioMistral classifier"]
+    I --> J["db.upsert_papers_bulk"]
+    J --> K["Update genes summary"]
+    K --> L["Mark queue done or error"]
+    L --> M["Drive upload or website sync"]
 ```
 
-The separation is intentional:
+Monthly refresh uses the same pipeline but starts from existing genes already in the database. It runs in stable alphabetical chunks so maintainers can safely process `start-at 0`, then `15`, then `30`, and continue without losing their place.
 
-- **Hugging Face Spaces** serves the CPU-only review website.
-- **Google Colab** runs the heavier GPU model workflow.
-- **Google Drive** acts as the shared DB handoff between Colab and the hosted site.
-- **GitHub** stores source code, documentation, and a database snapshot for reproducibility.
-
-## Planned AI Upgrade: Evidence-Grounded Agents
-
-The best next AI upgrade is not generic vector RAG. The more appropriate direction is an evidence-grounded multi-step review pipeline:
-
-```text
-PubMed Paper
-  -> Evidence Finder Agent
-  -> Functional Study Classifier
-  -> Skeptical Verifier Agent
-  -> Confidence Calibrator
-  -> Human Review Router
-  -> Database / Review UI
-```
-
-![Evidence-grounded AI roadmap](docs/images/workflow-roadmap.png)
-
-### Why This Direction
-
-A vector database can help retrieve semantically similar text, but the core scientific risk here is different: the system must avoid treating weak association, expression-only findings, review text, or indirect pathway mentions as direct functional evidence.
-
-The next version should therefore focus on:
-
-- **Evidence Finder Agent**
-  Selects passages that mention the target gene near perturbation, model-system, and phenotype terms.
-
-- **Functional Study Classifier**
-  Produces a structured label from the evidence passage, not from the whole paper in an unconstrained way.
-
-- **Skeptical Verifier Agent**
-  Challenges the initial label by asking whether the evidence actually supports the claim.
-
-- **Confidence Calibrator**
-  Separates sub-scores such as gene specificity, perturbation strength, experimental system quality, LLM/rule agreement, and evidence completeness.
-
-- **Human Review Router**
-  Sends ambiguous cases to review instead of forcing a confident answer.
-
-![Planned human review routing](docs/images/planned-review-queue.png)
-
-## What This Project Does Not Claim
-
-This repository should be read as a research workflow prototype, not a validated biomedical product.
-
-It does not currently provide:
-
-- production-grade RAG over all PubMed
-- autonomous end-to-end scientific agents
-- validated clinical recommendations
-- comprehensive recall over every relevant paper
-- calibrated probabilities of gene function
-- replacement for expert review
-
-The intended use is triage and evidence organization for researchers.
-
-## Repository Layout
+## Repository Structure
 
 | Path | Purpose |
 | --- | --- |
-| `app.py` | Flask web app for the Hugging Face Space. CPU only. |
-| `templates/index.html` | Search/review UI. |
-| `db.py` | SQLite schema, query helpers, exports, and request queue logic. |
-| `drive_sync.py` | Google Drive sync for the hosted DB. |
-| `pipeline.py` | PubMed retrieval, evidence extraction, rule logic, LLM classification, confidence scoring. |
-| `pubmed_llm_maintenance_runner.ipynb` | Recommended Colab maintenance notebook with simple settings and task cells. |
-| `pubmed_llm.ipynb` | Original Colab worker notebook kept for reference/backward compatibility. |
-| `scripts/process_queue.py` | Batch worker for pending website gene requests. |
-| `scripts/update_existing_genes.py` | Monthly refresh script for genes already in the database. |
-| `scripts/check_queue_status.py` | Lightweight queue/database status check. |
-| `gene_function_lab/gene_function_lab.db` | Current local SQLite database snapshot. |
-| `Dockerfile` | Hugging Face Spaces container setup. |
-| `requirements.txt` | CPU website dependencies. |
-| `requirements-worker.txt` | GPU/worker dependencies for Colab or a GPU VM. |
-| `docs/images/` | README screenshots and roadmap visuals. |
+| `app.py` | Flask application for the Hugging Face Space. |
+| `templates/index.html` | Browser UI for search, queue, and human review. |
+| `db.py` | SQLite schema, migrations, queries, queue helpers, review helpers, export helpers. |
+| `drive_sync.py` | Google Drive download/upload logic for the website DB. |
+| `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |
+| `scripts/check_queue_status.py` | Prints DB and queue counts. |
+| `scripts/process_queue.py` | Processes pending or failed gene requests in bounded batches. |
+| `scripts/update_existing_genes.py` | Monthly refresh for existing genes. |
+| `scripts/check_gene_refresh.py` | Verifies selected genes after a monthly refresh chunk. |
+| `scripts/common.py` | Shared script configuration, logging, DB path, cache path, and upload helpers. |
+| `pubmed_llm_maintenance_runner.ipynb` | Recommended Colab notebook for non-coding maintainers. |
+| `pubmed_llm.ipynb` | Older notebook kept for reference/backward compatibility. |
+| `requirements.txt` | Lightweight website dependencies. |
+| `requirements-worker.txt` | Worker/GPU dependencies. |
+| `docs/` | Maintenance, deployment, monthly refresh, and system documentation. |
+| `docs/images/` | README/demo visuals. |
+| `gene_function_lab/gene_function_lab.db` | Local DB snapshot. Do not treat this as a secret, but avoid unnecessary commits. |
 
-Generated cache folders, CSV exports, Python bytecode, and credential JSON files are excluded through `.gitignore`.
+The project is still intentionally flat because Hugging Face Spaces expects the app files at the repository root. A future larger refactor could move code into `app/` and `pipeline/`, but that should be done only after deployment paths are tested.
 
-## Maintenance Workflow
+## Setup
 
-The notebook remains available, but the preferred maintenance path is now the reusable scripts in `scripts/`.
+### Python
 
-For non-coding lab members, open `pubmed_llm_maintenance_runner.ipynb` in Colab, run setup, edit the small settings cell, then run the task cell for queue processing, error retries, or monthly refresh.
+Recommended:
 
-Check queue/database status:
+- Python 3.10 or 3.11 for local website work
+- Colab or a GPU machine for BioMistral inference
 
-```bash
-python scripts/check_queue_status.py \
-  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
-```
-
-Process a safe first batch of queued genes:
+Website dependencies:
 
 ```bash
-python scripts/process_queue.py \
-  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
-  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
-  --max-requests 1 \
-  --max-papers 25 \
-  --reset-processing \
-  --upload-at-end
+pip install -r requirements.txt
 ```
 
-Refresh existing genes monthly:
+Worker dependencies:
 
 ```bash
-python scripts/update_existing_genes.py \
-  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
-  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
-  --start-at 0 \
-  --max-genes 5 \
-  --max-papers 50 \
-  --upload
+pip install -r requirements-worker.txt
 ```
 
-See [docs/maintenance.md](docs/maintenance.md) for the full operational guide, backlog strategy, and troubleshooting notes.
+### Environment Variables
 
-The website itself should remain lightweight. Do not run BioMistral inside the Hugging Face CPU Space.
+Copy `.env.example` for local reference, but do not commit real secrets.
 
-## Setup Notes
+| Variable | Used By | Purpose |
+| --- | --- | --- |
+| `GENE_LAB_DB_PATH` | website, scripts | SQLite DB path. |
+| `GDRIVE_CACHE` | worker | PubMed/PMC cache directory. |
+| `ENTREZ_EMAIL` | worker | NCBI Entrez contact email. |
+| `HF_TOKEN` | worker | Hugging Face token for model downloads. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | website, upload scripts | Google service-account JSON content. |
+| `GOOGLE_DRIVE_DB_FILE_ID` | website, upload scripts | Exact Drive file id for the shared DB. Strongly recommended. |
+| `GOOGLE_DRIVE_FOLDER_ID` | website, upload scripts | Optional folder scope for Drive lookup. |
+| `APP_PASSWORD` | website | Private website password. |
 
-### Hugging Face Spaces
+### Hugging Face Space
 
-Create a Docker Space and include:
+The Space should include:
 
 - `app.py`
 - `db.py`
@@ -222,45 +164,119 @@ Create a Docker Space and include:
 - `requirements.txt`
 - `templates/index.html`
 
-Required repository secret:
-
-- `GOOGLE_SERVICE_ACCOUNT_JSON`
-
-Optional repository secret:
+Set Space secrets:
 
 - `APP_PASSWORD`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
+- `GOOGLE_DRIVE_DB_FILE_ID`
 
-### Google Colab
+The Flask app serves `templates/index.html`. Do not upload a root-level `index.html` as a replacement for the app UI.
 
-Use `pubmed_llm.ipynb` for GPU work. Replace placeholder secrets with Colab secrets or private Drive files:
+### Colab Maintenance
 
-- Hugging Face token
-- Google service-account JSON
-- PubMed/Entrez email
+For routine lab work, open:
 
-Do not commit real service-account JSON files, Hugging Face tokens, or `.env` files.
-
-For script-based maintenance in Colab:
-
-```bash
-%cd /content/drive/MyDrive/pubmed_llm
-!pip install -r requirements-worker.txt
+```text
+pubmed_llm_maintenance_runner.ipynb
 ```
 
-## Future Engineering Priorities
+Run setup, edit the small settings cell, then run only the task cell you need.
 
-High-value next steps:
+## Maintenance Quick Reference
 
-1. Add a small manually reviewed gold-label set.
+Check database and queue status:
+
+```bash
+python -u scripts/check_queue_status.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
+```
+
+Process a small queue batch:
+
+```bash
+python -u scripts/process_queue.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --max-requests 3 \
+  --max-papers 50 \
+  --upload-at-end
+```
+
+Retry failed queue rows after a fix:
+
+```bash
+python -u scripts/process_queue.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --retry-errors \
+  --max-requests 3 \
+  --max-papers 50 \
+  --upload-at-end
+```
+
+Monthly refresh in a stable chunk:
+
+```bash
+python -u scripts/update_existing_genes.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --start-at 0 \
+  --max-genes 15 \
+  --max-papers 500 \
+  --upload
+```
+
+Verify that same chunk:
+
+```bash
+python -u scripts/check_gene_refresh.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --start-at 0 \
+  --max-genes 15
+```
+
+After updating the Drive DB, refresh the website from the authenticated Space UI or call the sync endpoint from the Space domain. Treat any URL token as private.
+
+Full guides:
+
+- [System overview](docs/system-overview.md)
+- [Pipeline details](docs/pipeline.md)
+- [Maintenance guide](docs/maintenance.md)
+- [Monthly refresh guide](docs/monthly-refresh.md)
+- [Deployment guide](docs/deployment.md)
+- [Maintenance pipeline audit](docs/maintenance-pipeline.md)
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+| --- | --- | --- |
+| Website shows `0 papers` or `synced error` | DB sync failed or schema migration did not run | Check Space logs, confirm `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_DRIVE_DB_FILE_ID`, restart after code update. |
+| Website counts stay old after Colab finishes | Website is reading a different Drive DB file | Set the exact `GOOGLE_DRIVE_DB_FILE_ID` in both Colab and Space secrets. |
+| Colab output appears frozen | Python output buffering or long BioMistral inference | Use `python -u`; the maintenance runner streams output line by line. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON secret not set` | Upload secret is missing in Colab | Mounted Drive writes may still update the DB, but API upload will fail. Add the secret or manually replace the Drive DB. |
+| BioMistral downloads every run | Runtime cache is temporary or HF token missing | Keep cache on Drive where possible and set `HF_TOKEN`. |
+| PubMed error about `retstart` | Query returns too many results | Lower `max_papers`, rely on newer/ranked results, or refine PubMed query logic later. |
+| Queue rows stuck as `processing` | Colab was interrupted | Run `process_queue.py --reset-processing --max-requests 0`. |
+| Human review saves locally but not to Drive | Space cannot upload DB | Configure Drive write secret or manually preserve/upload DB before Space restart. |
+
+## Current Limitations
+
+- Processing is slow because each paper can require PubMed lookup, PMC fetch, rule extraction, and LLM inference.
+- Colab is workable for maintenance but not ideal as a production worker.
+- The confidence score is evidence-support, not a validated probability.
+- The system is not guaranteed to retrieve every relevant paper.
+- Human review labels are stored in SQLite and require careful DB sync/backup discipline.
+- The pipeline has not yet been evaluated against a formal gold-label benchmark.
+
+## Realistic Future Work
+
+Highest-value future upgrades:
+
+1. Create a small manually reviewed gold-label set.
 2. Report precision, recall, F1, and disagreement cases.
-3. Add a verifier pass for low-confidence or rule/LLM-disagreement cases.
-4. Use reviewer corrections to tune confidence thresholds and routing rules.
-5. Add scheduled GitHub Actions for syntax checks and notebook secret scanning.
+3. Add a verifier pass for weak evidence, LLM/rule disagreement, and high-impact labels.
+4. Improve confidence calibration using reviewer feedback.
+5. Move routine refresh from Colab to a scheduled GPU worker when the lab has stable compute.
+6. Add lightweight CI checks for Python syntax, schema migration, and secret scanning.
 
-## Limitations
-
-The pipeline depends on PubMed/PMC availability, text extraction quality, keyword coverage, prompt stability, and model behavior. It may miss relevant evidence or over-rank weak evidence. Human review is expected before drawing scientific conclusions.
-
-## Security
-
-This repository previously contained private credentials during local handoff and has since been cleaned. Any exposed service-account keys or Hugging Face tokens should be revoked and rotated before public sharing.
+The next AI step should be evidence-grounded verification and human review routing, not a generic vector-database RAG rewrite.
