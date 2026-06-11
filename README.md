@@ -270,7 +270,7 @@ Full guides:
 - Human review labels are stored in SQLite and require careful DB sync/backup discipline.
 - The pipeline has not yet been evaluated against a formal gold-label benchmark.
 
-## Realistic Future Work
+## Future Work
 
 Highest-value future upgrades:
 
