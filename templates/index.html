@@ -74,20 +74,36 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .scard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:18px 20px;}
 .sval{font-size:30px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.03em;}
 .slbl{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:5px;}
-.gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:24px;}
+.gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-bottom:24px;}
 .gcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:18px;cursor:pointer;transition:all .15s;}
 .gcard:hover{border-color:var(--accent);box-shadow:0 2px 12px rgba(37,99,235,.1);}
 .gcard.sel{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.1);}
-.gcname{font-size:22px;font-weight:700;color:var(--text);font-family:var(--mono);letter-spacing:-.02em;}
+.gcname{font-size:24px;font-weight:700;color:var(--text);font-family:var(--mono);letter-spacing:-.02em;}
 .gcinfo{font-size:14px;color:var(--muted);margin-top:5px;}.gcinfo strong{color:var(--text);}
-.gchead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;}
-.gcrate{text-align:right;font-size:12px;color:var(--muted);}.gcrate strong{display:block;font-size:22px;line-height:1;color:var(--text);}
+.gchead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px;}
+.gcrate{text-align:right;font-size:12px;color:var(--muted);min-width:94px;}.gcrate strong{display:block;font-size:24px;line-height:1;color:var(--text);}
+.sharebar{height:7px;background:var(--bg);border-radius:999px;overflow:hidden;margin:12px 0 8px;}
+.sharefill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--green));}
+.support-badge{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-top:5px;}
+.support-strong{background:var(--gl);color:var(--green);}.support-moderate{background:var(--aml);color:var(--amber);}.support-weak{background:var(--rl);color:var(--red);}.support-none{background:var(--bg);color:var(--faint);border:1px solid var(--border);}
+.support-note{font-size:11px;color:var(--faint);margin-top:6px;line-height:1.35;}
+.signal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0 2px;}
+.signal{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;min-width:0;}
+.signal span{display:block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:4px;}
+.signal strong{display:block;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .gcsection{border-top:1px solid var(--border);padding-top:10px;margin-top:10px;}
 .gclabel{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;}
-.gcmetrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
-.gcmetric{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 8px;min-width:0;}
-.gcmetric span{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.gcmetric strong{display:block;font-size:15px;color:var(--text);font-family:var(--mono);font-weight:600;}
+.stackbar{display:flex;height:9px;border-radius:999px;overflow:hidden;background:var(--bg);border:1px solid var(--border);}
+.seg{height:100%;min-width:2px;}
+.c-panc{background:#f59e0b;}.c-gi{background:#10b981;}.c-other{background:#f43f5e;}.c-unknown{background:#94a3b8;}
+.e-vitro{background:#8b5cf6;}.e-vivo{background:#f97316;}.e-both{background:#2563eb;}.e-unknown{background:#94a3b8;}
+.breakdown{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+.bchip{display:inline-flex;gap:5px;align-items:center;border-radius:5px;padding:3px 7px;font-size:11px;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
+.bchip i{width:7px;height:7px;border-radius:2px;display:inline-block;}
+.bchip strong{font-family:var(--mono);color:var(--text);font-weight:600;}
+.support-mix{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px;}
+.support-pill{border-radius:6px;padding:6px 7px;font-size:11px;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
+.support-pill strong{display:block;font-family:var(--mono);font-size:14px;color:var(--text);}
 .minibar{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:12px;background:var(--bg);}
 .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;}
 .tag{font-size:11px;font-family:var(--mono);font-weight:500;padding:2px 7px;border-radius:4px;}
@@ -215,7 +231,7 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
           </select>
         </div>
         <div>
-          <label class="flabel">Min confidence: <span id="confv" style="color:var(--accent);font-weight:600;">0.00</span></label>
+          <label class="flabel">Min support: <span id="confv" style="color:var(--accent);font-weight:600;">0.00</span></label>
           <div class="conf-row">
             <input type="range" id="f-conf" min="0" max="1" step="0.05" value="0"
               oninput="document.getElementById('confv').textContent=parseFloat(this.value).toFixed(2)">
@@ -446,6 +462,31 @@ async function doSearch(page) {
   finally { btn.disabled=false; btn.textContent='Search Database'; }
 }
 
+function topBreakdown(items) {
+  return items.reduce((best, item) => item.count > best.count ? item : best, {label: 'None', count: 0});
+}
+
+function segmentedBar(items, total) {
+  if (!total) return `<div class="stackbar"><div class="seg c-unknown" style="width:100%;"></div></div>`;
+  return `<div class="stackbar">${items.filter(x => x.count > 0).map(x => {
+    const width = Math.max(3, Math.round(100 * x.count / total));
+    return `<div class="seg ${x.cls}" style="width:${width}%;" title="${attr(x.label)}: ${x.count}"></div>`;
+  }).join('')}</div>`;
+}
+
+function breakdownChips(items) {
+  return `<div class="breakdown">${items.map(x =>
+    `<span class="bchip"><i class="${x.cls}"></i>${esc(x.label)} <strong>${x.count}</strong></span>`
+  ).join('')}</div>`;
+}
+
+function supportBand(avg) {
+  if (!avg) return {label: 'Not scored', cls: 'support-none'};
+  if (avg >= .8) return {label: 'Strong support', cls: 'support-strong'};
+  if (avg >= .6) return {label: 'Moderate support', cls: 'support-moderate'};
+  return {label: 'Weak support', cls: 'support-weak'};
+}
+
 function renderCards(genes, summaries) {
   const el = document.getElementById('gcards');
   el.innerHTML = genes.map(gene => {
@@ -459,6 +500,22 @@ function renderCards(genes, summaries) {
     const pct = s.total ? Math.round(100 * s.functional / s.total) : 0;
     const evidenceKnown = (s.in_vitro_only || 0) + (s.in_vivo_only || 0) + (s.both || 0);
     const evidenceUnknown = Math.max((s.functional || 0) - evidenceKnown, 0);
+    const cancerItems = [
+      {label: 'Pancreatic', count: s.pancreatic || 0, cls: 'c-panc'},
+      {label: 'GI', count: s.gi || 0, cls: 'c-gi'},
+      {label: 'Other cancer', count: s.other_cancer || 0, cls: 'c-other'},
+      {label: 'Unknown', count: s.unknown_cancer || 0, cls: 'c-unknown'}
+    ];
+    const evidenceItems = [
+      {label: 'Both', count: s.both || 0, cls: 'e-both'},
+      {label: 'In vitro', count: s.in_vitro_only || 0, cls: 'e-vitro'},
+      {label: 'In vivo', count: s.in_vivo_only || 0, cls: 'e-vivo'},
+      {label: 'Unspecified', count: evidenceUnknown, cls: 'e-unknown'}
+    ];
+    const mainCancer = topBreakdown(cancerItems);
+    const mainEvidence = topBreakdown(evidenceItems);
+    const support = supportBand(s.support_avg || 0);
+    const supportScore = s.support_avg ? `${Math.round((s.support_avg || 0) * 100)}/100` : 'not scored';
     const methodRows = [
       ['KO', m.knockout || 0, 't-ko'],
       ['KD', m.knockdown || 0, 't-kd'],
@@ -466,10 +523,12 @@ function renderCards(genes, summaries) {
       ['siRNA', m.sirna || 0, 't-sirna'],
       ['CRISPR', m.crispr || 0, 't-crispr'],
       ['Screen', m.crispr_screen || 0, 't-crispr']
-    ].filter(x => x[1] > 0);
-    const methodTags = methodRows.map(([label, count, cls]) =>
+    ].filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
+    const shownMethods = methodRows.slice(0, 5);
+    const methodTags = shownMethods.map(([label, count, cls]) =>
       `<span class="tag ${cls}">${label}: ${count}</span>`
     ).join('');
+    const methodMore = methodRows.length > shownMethods.length ? `<span class="tag">${methodRows.length - shownMethods.length} more</span>` : '';
 
     return `<div class="gcard sel">
       <div class="gchead">
@@ -477,30 +536,39 @@ function renderCards(genes, summaries) {
           <div class="gcname">${gene}</div>
           <div class="gcinfo"><strong>${s.functional}</strong> functional studies from <strong>${s.total}</strong> papers</div>
         </div>
-        <div class="gcrate"><strong>${pct}%</strong> functional</div>
+        <div class="gcrate"><strong>${pct}%</strong> functional
+          <span class="support-badge ${support.cls}" title="Heuristic evidence-support score from rule, LLM, and extracted evidence signals; not a calibrated probability.">${support.label}</span>
+        </div>
+      </div>
+      <div class="sharebar" title="${pct}% of retrieved papers are classified as functional evidence."><div class="sharefill" style="width:${Math.max(2, pct)}%;"></div></div>
+
+      <div class="signal-grid">
+        <div class="signal"><span>Main cancer type</span><strong>${esc(mainCancer.label)} (${mainCancer.count})</strong></div>
+        <div class="signal"><span>Main evidence type</span><strong>${esc(mainEvidence.label)} (${mainEvidence.count})</strong></div>
       </div>
 
       <div class="gcsection">
         <div class="gclabel">Cancer type</div>
-        <div class="gcmetrics">
-          <div class="gcmetric"><span>Pancreatic</span><strong>${s.pancreatic || 0}</strong></div>
-          <div class="gcmetric"><span>GI</span><strong>${s.gi || 0}</strong></div>
-          <div class="gcmetric"><span>Other cancer</span><strong>${s.other_cancer || 0}</strong></div>
-          <div class="gcmetric"><span>Unknown</span><strong>${s.unknown_cancer || 0}</strong></div>
-        </div>
+        ${segmentedBar(cancerItems, s.functional || 0)}
+        ${breakdownChips(cancerItems)}
       </div>
 
       <div class="gcsection">
         <div class="gclabel">Functional evidence</div>
-        <div class="gcmetrics">
-          <div class="gcmetric"><span>In vitro only</span><strong>${s.in_vitro_only || 0}</strong></div>
-          <div class="gcmetric"><span>In vivo only</span><strong>${s.in_vivo_only || 0}</strong></div>
-          <div class="gcmetric"><span>Both</span><strong>${s.both || 0}</strong></div>
-          <div class="gcmetric"><span>Unspecified</span><strong>${evidenceUnknown}</strong></div>
-        </div>
+        ${segmentedBar(evidenceItems, s.functional || 0)}
+        ${breakdownChips(evidenceItems)}
       </div>
 
-      ${methodTags ? `<div class="gcsection"><div class="gclabel">Perturbation methods</div><div class="tags">${methodTags}</div></div>` : ''}
+      ${methodTags ? `<div class="gcsection"><div class="gclabel">Perturbation methods</div><div class="tags">${methodTags}${methodMore}</div></div>` : ''}
+      <div class="gcsection">
+        <div class="gclabel">Evidence support</div>
+        <div class="support-mix">
+          <div class="support-pill"><strong>${s.support_strong || 0}</strong> strong</div>
+          <div class="support-pill"><strong>${s.support_moderate || 0}</strong> moderate</div>
+          <div class="support-pill"><strong>${s.support_weak || 0}</strong> weak</div>
+        </div>
+        <div class="support-note">Avg ${supportScore}; heuristic triage score, not a calibrated probability. ${s.support_disagree ? `${s.support_disagree} rule/LLM disagreement${s.support_disagree === 1 ? '' : 's'}.` : ''}</div>
+      </div>
     </div>`;
   }).join('');
   el.style.display='grid';
@@ -518,7 +586,7 @@ function renderTable(rows, total) {
   document.getElementById('tbl-title').textContent = `${fmt(total)} paper${total !== 1 ? 's' : ''}`;
   let html = `<table><thead><tr>
     <th>Gene</th><th>Title</th><th>Year</th><th>Cancer</th>
-    <th>Functional</th><th>Where</th><th>Confidence</th><th>Review</th><th></th>
+    <th>Functional</th><th>Where</th><th>Evidence support</th><th>Review</th><th></th>
   </tr></thead><tbody>`;
   rows.forEach((row, i) => {
     const uid = 'r' + i;
@@ -542,7 +610,7 @@ function renderTable(rows, total) {
       <td style="font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;">${esc(row.year || '')}</td>
       <td>${cb}</td><td>${fb}${dis}</td><td>${wb}</td>
       <td><div class="cbar"><div class="cbg"><div class="cfg" style="width:${Math.round(conf * 100)}%;background:${cc};"></div></div>
-      <span class="cnum">${conf.toFixed(2)}</span></div><div class="tdm">${esc(label)}</div></td>
+      <span class="cnum">${Math.round(conf * 100)}/100</span></div><div class="tdm">${esc(label)} heuristic</div></td>
       <td><span class="badge bprio-${attr(priority)}">${esc(status)}</span></td>
       <td><button class="xbtn" onclick="toggleEv('${uid}',this)">More</button></td>
     </tr>
@@ -587,7 +655,7 @@ function reviewBox(row, uid) {
       <input id="rev-notes-${uid}" type="text" value="${attr(row.review_notes || '')}" placeholder="Short reviewer note">
       <button class="review-save" onclick="saveReview('${uid}', '${attr(row.gene || '')}', '${attr(row.pmid || '')}', this)">Save</button>
     </div>
-    <div id="rev-msg-${uid}" class="review-msg">Priority: ${esc(row.review_priority || 'low')} - Confidence: ${esc(row.confidence_label || '')}</div>
+    <div id="rev-msg-${uid}" class="review-msg">Priority: ${esc(row.review_priority || 'low')} - Evidence support: ${esc(row.confidence_label || '')}</div>
   </div>`;
 }
 

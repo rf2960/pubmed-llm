@@ -367,6 +367,17 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
                FROM papers WHERE gene=? AND functional_study=1 AND confidence>=?""",
             (g, min_conf)
         ).fetchone()
+        support = conn.execute(
+            """SELECT AVG(confidence) as avg_confidence,
+                      SUM(confidence >= 0.80) as strong,
+                      SUM(confidence >= 0.60 AND confidence < 0.80) as moderate,
+                      SUM(confidence < 0.60) as weak,
+                      SUM(COALESCE(llm_rules_disagree, 0)=1) as disagree,
+                      SUM(COALESCE(review_status, 'unreviewed') != 'reviewed') as unreviewed
+               FROM papers
+               WHERE gene=? AND functional_study=1 AND confidence>=?""",
+            (g, min_conf)
+        ).fetchone()
         top = conn.execute(
             """SELECT pmid, title, year, journal, pubmed_link, confidence,
                       llm_reasoning, cancer_type, in_vitro, in_vivo, where_functional,
@@ -389,6 +400,12 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
         "both":          int(loc["both"]        or 0),
         "methods":       {k: int(methods[k] or 0) for k in
                           ["knockout","knockdown","shrna","sirna","crispr","crispr_screen"]},
+        "support_avg":   float(support["avg_confidence"] or 0.0),
+        "support_strong": int(support["strong"] or 0),
+        "support_moderate": int(support["moderate"] or 0),
+        "support_weak":  int(support["weak"] or 0),
+        "support_disagree": int(support["disagree"] or 0),
+        "support_unreviewed": int(support["unreviewed"] or 0),
         "top_papers":    [annotate_paper_row(dict(r)) for r in top],
         "already_processed": gene_is_processed(g, db_path),
     }
