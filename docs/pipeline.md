@@ -56,17 +56,23 @@ The LLM step produces structured labels from evidence text. It is one classifier
 
 Rules-only mode is available with `--no-llm` for faster triage, but it should not be treated as the preferred final workflow.
 
-## Confidence Score
+## Evidence-Support Score
 
-The confidence score is an evidence-support score. It combines:
+The `confidence` column is an evidence-support score. It is not a calibrated
+probability that the paper is correct. It is a structured triage score for how
+well the extracted evidence supports the stored functional / not-functional
+classification.
 
-- perturbation evidence
-- phenotype evidence
-- evidence depth
-- rule/LLM agreement
-- penalties for weak or indirect evidence
+The current rubric is implemented in `confidence.py` and is shared by the live
+pipeline and the score-recompute script. It scores:
 
-It should be interpreted as a review-priority score, not a calibrated probability.
+- direct gene perturbation evidence
+- phenotype model strength: both in vitro and in vivo > in vivo > in vitro
+- evidence depth and diversity across extracted evidence categories
+- perturbation method strength, such as knockout/CRISPR versus weaker evidence
+- rule/LLM agreement or disagreement
+- penalties for expression-only, correlation-only, review-only, or missing
+  evidence patterns
 
 Recommended interpretation:
 
@@ -75,6 +81,14 @@ Recommended interpretation:
 | `< 0.60` | weak | Needs human review before trusting the label. |
 | `0.60-0.79` | moderate | Useful candidate evidence but still reviewable. |
 | `>= 0.80` | strong | Multiple evidence signals support the label. |
+
+When the scoring rubric changes, existing database rows keep their old numeric
+scores until they are refreshed or recomputed. To update existing rows without
+rerunning PubMed retrieval or BioMistral:
+
+```bash
+python -u scripts/recompute_confidence.py --db-path gene_function_lab/gene_function_lab.db --upload
+```
 
 ## Database Writes
 

@@ -103,9 +103,11 @@ processes pending queue requests first, then refreshes existing genes whose
 | `templates/index.html` | Browser UI for search, queue, and human review. |
 | `db.py` | SQLite schema, migrations, queries, queue helpers, review helpers, export helpers. |
 | `drive_sync.py` | Google Drive download/upload logic for the website DB. |
+| `confidence.py` | Shared evidence-support scoring rubric used by both new processing and score recomputation. |
 | `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |
 | `scripts/check_queue_status.py` | Prints DB and queue counts. |
 | `scripts/process_queue.py` | Main maintenance worker for pending requests, failed requests, and stale existing-gene refresh. |
+| `scripts/recompute_confidence.py` | Recomputes existing paper evidence-support scores after scoring logic changes, without rerunning PubMed or BioMistral. |
 | `scripts/update_existing_genes.py` | Advanced fallback for manual existing-gene refresh chunks. |
 | `scripts/check_gene_refresh.py` | Advanced fallback verification for manual refresh chunks. |
 | `scripts/common.py` | Shared script configuration, logging, DB path, cache path, and upload helpers. |

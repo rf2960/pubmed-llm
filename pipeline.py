@@ -15,6 +15,8 @@ from Bio import Entrez
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
+from confidence import compute_confidence
+
 # Entrez
 Entrez.email       = os.environ.get("ENTREZ_EMAIL", "your_email@example.com")
 Entrez.tool        = "functional-study-db"
@@ -106,51 +108,8 @@ PATTERNS = {
         r"ferroptosis|BrdU|bromodeoxyuridine|organoid)\b", re.I),
 }
 
-# Confidence scoring
-#
-# This is an evidence-support score for triage, not a calibrated probability.
-# It is intentionally decomposed into interpretable signals so reviewers can
-# understand why a paper ranked high or low.
-FUNCTIONAL_SCORE_WEIGHTS = {
-    "gene_specific_perturbation": 0.20,
-    "in_vitro_phenotype":         0.12,
-    "in_vivo_phenotype":          0.16,
-    "both_vitro_and_vivo":        0.08,
-    "crispr_screen":              0.08,
-    "llm_rules_agree":            0.12,
-    "llm_only_support":           0.04,
-    "evidence_depth":             0.09,
-}
-
-NOT_FUNCTIONAL_SCORE_WEIGHTS = {
-    "expression_only":        0.12,
-    "correlation_only":       0.12,
-    "no_evidence_sents":      0.15,
-    "review_paper":           0.08,
-    "llm_and_rules_agree_no": 0.12,
-    "classified_by_llm":      0.05,
-}
-
-FUNCTIONAL_SCORE_PENALTIES = {
-    "expression_only":  0.12,
-    "correlation_only": 0.12,
-    "review_paper":     0.10,
-    "no_evidence_sents": 0.20,
-}
-
-
-def _clamp_score(value: float, lo: float = 0.05, hi: float = 0.95) -> float:
-    return round(max(lo, min(hi, value)), 3)
-
-
-def _evidence_depth_score(n_sents: int) -> float:
-    if n_sents >= 8:
-        return FUNCTIONAL_SCORE_WEIGHTS["evidence_depth"]
-    if n_sents >= 4:
-        return 0.06
-    if n_sents >= 2:
-        return 0.03
-    return 0.0
+# Confidence scoring lives in confidence.py so the live pipeline and maintenance
+# recompute scripts use the same evidence-support rubric.
 
 
 # SECTION 2: Entrez / PubMed helpers
@@ -609,96 +568,7 @@ JSON:
     return _postprocess_llm_json(data)
 
 
-# SECTION 6: Ensemble + calibrated confidence score 
-def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""):
-    primary = llm_result if llm_result is not None else rules_result
-    text    = (abstract or "").lower()
-    t_lower = (title or "").lower()
-    n_evidence_sents = int(ev.get("total_evidence_sents", 0) or 0)
-
-    pos_signals = {
-        "gene_specific_perturbation": bool(
-            ev.get("evidence_perturbation") and primary.get("functional_study")),
-        "in_vitro_phenotype":  bool(primary.get("in_vitro")),
-        "in_vivo_phenotype":   bool(primary.get("in_vivo")),
-        "both_vitro_and_vivo": bool(primary.get("in_vitro") and primary.get("in_vivo")),
-        "crispr_screen":       bool(primary.get("crispr_screen")),
-        "llm_rules_agree":     (
-            llm_result is not None and
-            llm_result.get("functional_study") == True and
-            rules_result.get("functional_study") == True
-        ),
-        "llm_only_support": (
-            llm_result is not None and
-            llm_result.get("functional_study") == True and
-            rules_result.get("functional_study") == False
-        ),
-        "evidence_depth": n_evidence_sents >= 2,
-    }
-
-    expression_words = ["expression", "mrna level", "protein level",
-                        "upregulated", "downregulated", "overexpressed"]
-    correlation_words = ["associated with", "correlated with", "prognostic",
-                         "biomarker", "signature", "survival analysis",
-                         "kaplan-meier", "hazard ratio"]
-    review_words = ["review", "meta-analysis", "systematic review",
-                    "literature review", "commentary"]
-
-    has_expression_only = (
-        any(w in text for w in expression_words) and
-        not ev.get("evidence_perturbation")
-    )
-    has_correlation_only = (
-        any(w in text for w in correlation_words) and
-        not primary.get("functional_study")
-    )
-    is_review = any(w in t_lower for w in review_words)
-
-    neg_signals = {
-        "expression_only":        has_expression_only,
-        "correlation_only":       has_correlation_only,
-        "no_evidence_sents":      n_evidence_sents == 0,
-        "review_paper":           is_review,
-        "llm_and_rules_agree_no": (
-            llm_result is not None and
-            llm_result.get("functional_study") == False and
-            rules_result.get("functional_study") == False
-        ),
-        "classified_by_llm": llm_result is not None,
-    }
-
-    conf_functional = 0.35 if primary.get("functional_study") else 0.20
-    for key, present in pos_signals.items():
-        if not present:
-            continue
-        if key == "evidence_depth":
-            conf_functional += _evidence_depth_score(n_evidence_sents)
-        else:
-            conf_functional += FUNCTIONAL_SCORE_WEIGHTS[key]
-
-    for key, penalty in FUNCTIONAL_SCORE_PENALTIES.items():
-        if neg_signals.get(key):
-            conf_functional -= penalty
-
-    conf_not_functional = 0.40 if not primary.get("functional_study") else 0.20
-    conf_not_functional += sum(
-        NOT_FUNCTIONAL_SCORE_WEIGHTS[k] for k, v in neg_signals.items() if v
-    )
-    if ev.get("evidence_perturbation"):
-        conf_not_functional -= 0.10
-
-    if (llm_result is not None and
-            llm_result.get("functional_study") != rules_result.get("functional_study")):
-        conf_functional     = min(conf_functional,     0.62)
-        conf_not_functional = min(conf_not_functional, 0.62)
-
-    if llm_result is None:
-        conf_functional     = min(conf_functional,     0.72)
-        conf_not_functional = min(conf_not_functional, 0.72)
-
-    return _clamp_score(conf_functional), _clamp_score(conf_not_functional), pos_signals, neg_signals
-
-
+# SECTION 6: Ensemble + evidence-support score
 def ensemble_classify(gene: str, title: str, abstract: str,
                       evidence_text: str, ev: dict) -> dict:
     full_text_for_rules = (abstract or "") + "\n" + (evidence_text or "")
