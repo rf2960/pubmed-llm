@@ -137,6 +137,9 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
 .ev-lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;}
 .ev-txt{font-family:var(--mono);font-size:12px;color:var(--text);line-height:1.7;}
 .ev-note{font-size:13px;color:var(--muted);line-height:1.6;font-style:italic;}
+.support-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;}
+.support-component{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 8px;font-size:11px;color:var(--muted);}
+.support-component strong{display:block;color:var(--text);font-family:var(--mono);font-size:14px;margin-top:2px;}
 .review-box{margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);}
 .review-grid{display:grid;grid-template-columns:160px 160px 1fr 110px;gap:8px;align-items:start;}
 .review-grid select,.review-grid input{font-size:13px;padding:7px 9px;}
@@ -637,6 +640,25 @@ function buildEv(row, uid) {
     row.pmcid ? `PMCID: ${row.pmcid}` : null,
   ].filter(Boolean).join(' - ');
   if (signals) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review signals</div><div>${signals}</div>`);
+  if (row.support_reasons && row.support_reasons.length) {
+    parts.push(`<div class="ev-lbl" style="margin-top:12px;">Evidence support explanation</div>` +
+      row.support_reasons.map(x => `<div class="ev-txt">- ${esc(x)}</div>`).join(''));
+  }
+  if (row.support_components && Object.keys(row.support_components).length) {
+    const labels = [
+      ['perturbation', 'Perturbation'],
+      ['phenotype', 'Phenotype'],
+      ['evidence_depth', 'Evidence depth'],
+      ['agreement', 'Rule/LLM agreement'],
+      ['source_reliability', 'Source reliability'],
+      ['method_strength', 'Method strength'],
+      ['context', 'Evidence context'],
+    ];
+    parts.push(`<div class="support-detail">${labels.map(([key, label]) => {
+      const val = row.support_components[key];
+      return `<div class="support-component">${label}<strong>${val === undefined ? '-' : Number(val).toFixed(2)}</strong></div>`;
+    }).join('')}</div>`);
+  }
   if (meta) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Diagnostics</div><div class="ev-txt">${esc(meta)}</div>`);
   parts.push(reviewBox(row, uid));
   return parts.join('') || `<div class="ev-txt" style="color:var(--faint);">No evidence extracted.</div>${reviewBox(row, uid)}`;

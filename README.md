@@ -40,7 +40,7 @@ The current version combines rule-based evidence detection with an LLM classifie
 - an evidence-support confidence score
 - human review status, label, reviewer notes, and reviewer timestamp
 
-The confidence score is not a calibrated probability. It is an interpretable evidence-support score used to prioritize review. The website labels rows as weak, moderate, or strong support and highlights cases that need human attention.
+The confidence score is not a calibrated probability and is not a probability returned by BioMistral. It is an interpretable evidence-support score used to prioritize review. The website labels rows as weak, moderate, or strong support and highlights cases that need human attention.
 
 ![Evidence-ranked result table](docs/images/demo-results.png)
 

@@ -71,8 +71,16 @@ pipeline and the score-recompute script. It scores:
 - evidence depth and diversity across extracted evidence categories
 - perturbation method strength, such as knockout/CRISPR versus weaker evidence
 - rule/LLM agreement or disagreement
+- gene mention specificity inside extracted evidence sentences
+- evidence context, including whether PMC/full-text evidence was available
 - penalties for expression-only, correlation-only, review-only, or missing
   evidence patterns
+
+BioMistral does not return a calibrated probability in this pipeline. Its output
+is a structured label, so "model confidence" is represented only indirectly by
+whether BioMistral was available and whether it agrees with the rule classifier.
+Rules-only rows are not forced to a fixed default score; they receive a source
+reliability penalty while still using the actual evidence components.
 
 Recommended interpretation:
 

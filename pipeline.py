@@ -593,7 +593,10 @@ def ensemble_classify(gene: str, title: str, abstract: str,
 
     confidence = conf_functional if primary.get("functional_study") else conf_not_functional
     if llm_rules_disagree:
-        confidence = min(confidence, 0.60)
+        # Disagreement is already penalized inside confidence.py. Keep an
+        # additional soft ceiling so disagreement remains review-worthy without
+        # flattening many rows to the same score.
+        confidence = min(confidence, 0.72)
 
     return {
         **primary,
@@ -787,6 +790,8 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
 
         fulltext, pmcid = fetch_pmc_fulltext(pmid)
         ev = extract_evidence_pack(gene, abstract, fulltext)
+        ev["pmcid"] = pmcid or ""
+        ev["has_fulltext_context"] = bool(fulltext)
 
         decision = ensemble_classify(gene, title, abstract, ev["evidence_text"], ev)
 

@@ -47,7 +47,7 @@ def main() -> int:
         params.append(args.limit)
 
     sql = f"""
-        SELECT gene, pmid, title, functional_study, where_functional,
+        SELECT gene, pmid, pmcid, title, functional_study, where_functional,
                in_vitro, in_vivo, knockout, knockdown, shrna, sirna,
                crispr, crispr_screen, confidence, confidence_functional,
                confidence_not_functional, classified_by_llm,

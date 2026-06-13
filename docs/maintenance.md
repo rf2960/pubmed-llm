@@ -49,11 +49,17 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 The confidence score is an evidence-support score, not a calibrated probability.
 The current rubric lives in `confidence.py`. It scores direct perturbation
 evidence, phenotype/model strength, evidence depth, perturbation method strength,
-and rule/LLM agreement, with penalties for expression-only, correlation-only,
-review-only, or missing-evidence patterns. The website displays a
+gene mention specificity, evidence context, and rule/LLM agreement, with
+penalties for expression-only, correlation-only, review-only, or
+missing-evidence patterns. The website displays a
 weak/moderate/strong label and adds review-priority signals when the row looks
 risky, such as LLM/rule disagreement, weak extracted evidence, or a functional
 label without perturbation evidence.
+
+BioMistral does not provide a calibrated confidence probability here. The score
+uses BioMistral as one structured classifier and records whether it agrees with
+the rule classifier. If a row is rules-only, it receives a source reliability
+penalty instead of a fixed default score.
 
 If `confidence.py` changes, old rows keep old scores until refreshed or
 recomputed. To recompute existing rows without rerunning BioMistral:

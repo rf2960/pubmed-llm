@@ -288,6 +288,15 @@ def annotate_paper_row(row: dict) -> dict:
     out["confidence_label"] = _confidence_label(out)
     out["review_priority"] = _review_priority(out)
     out["review_signals"] = _review_signals(out)
+    try:
+        from confidence import explain_confidence_from_db_row
+
+        explanation = explain_confidence_from_db_row(out)
+        out["support_components"] = explanation["components"]
+        out["support_reasons"] = explanation["reasons"]
+    except Exception:
+        out["support_components"] = {}
+        out["support_reasons"] = []
     return out
 
 
