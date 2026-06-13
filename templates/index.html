@@ -30,7 +30,7 @@ a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
 .dbstat{margin-left:auto;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:7px;}
 .pulse{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;}
 .sbsec{padding:18px 20px;border-bottom:1px solid var(--border);}
 .sblbl{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;}
 textarea,select,input[type=text]{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:14px;padding:9px 12px;border-radius:var(--r);outline:none;transition:border-color .15s,box-shadow .15s;}
@@ -56,12 +56,12 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .selchip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:12px;font-weight:500;padding:3px 7px;background:var(--accent);color:#fff;border-radius:5px;}
 .selchip button{border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:4px;width:16px;height:16px;line-height:14px;cursor:pointer;font-size:13px;font-family:var(--sans);}
 .selected-empty{font-size:12px;color:var(--faint);}
-.gene-browser{flex:1;display:flex;flex-direction:column;min-height:0;padding:16px 20px;border-bottom:none;}
+.gene-browser{display:flex;flex-direction:column;min-height:0;margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--r);background:#fafbfc;}
 .gene-browser-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
 .gene-count{font-size:11px;color:var(--faint);white-space:nowrap;}
 .gene-filter{margin-bottom:10px;flex-shrink:0;}
 .picker-hint{font-size:12px;color:var(--muted);margin:-4px 0 10px;}
-.gpills{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;overflow-y:auto;min-height:140px;padding:2px 4px 8px 0;}
+.gpills{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;overflow-y:auto;min-height:112px;max-height:190px;padding:2px 4px 8px 0;}
 .gpill{font-family:var(--mono);font-size:12px;font-weight:500;padding:5px 9px;background:var(--al);color:var(--accent);border:1px solid var(--ab);border-radius:6px;cursor:pointer;transition:background .12s,border-color .12s,color .12s;}
 .gpill:hover{background:#dbeafe;}
 .gpill.on{background:var(--accent);border-color:var(--accent);color:#fff;}
@@ -181,6 +181,15 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
           <span class="selected-empty">No genes selected.</span>
         </div>
       </div>
+      <div class="gene-browser">
+        <div class="gene-browser-head">
+          <div class="sblbl" style="margin-bottom:0;">Genes in DB</div>
+          <span class="gene-count" id="gene-count">Loading</span>
+        </div>
+        <input class="gene-filter" id="gene-filter" type="text" placeholder="Filter genes..." oninput="renderGenePicker()">
+        <div class="picker-hint">Click chips to add or remove genes.</div>
+        <div class="gpills" id="db-genes"></div>
+      </div>
       <div class="filters">
         <div>
           <label class="flabel">Cancer type</label>
@@ -215,15 +224,6 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
         <button class="btn btn-p" onclick="doSearch()">Search Database</button>
         <button class="btn btn-o" onclick="doExport()">Export CSV</button>
       </div>
-    </div>
-    <div class="sbsec gene-browser">
-      <div class="gene-browser-head">
-        <div class="sblbl" style="margin-bottom:0;">Genes in DB</div>
-        <span class="gene-count" id="gene-count">Loading</span>
-      </div>
-      <input class="gene-filter" id="gene-filter" type="text" placeholder="Filter genes..." oninput="renderGenePicker()">
-      <div class="picker-hint">Click chips to add or remove genes.</div>
-      <div class="gpills" id="db-genes"></div>
     </div>
   </aside>
   <main class="main">
