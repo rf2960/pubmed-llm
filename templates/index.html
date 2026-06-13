@@ -21,7 +21,7 @@
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;}
 a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
-.shell{display:grid;grid-template-columns:288px 1fr;grid-template-rows:56px 1fr;height:100vh;overflow:hidden;}
+.shell{display:grid;grid-template-columns:320px 1fr;grid-template-rows:56px 1fr;height:100vh;overflow:hidden;}
 .topbar{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:14px;}
 .logo{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.01em;}
 .logo em{color:var(--accent);font-style:normal;}
@@ -30,8 +30,8 @@ a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
 .dbstat{margin-left:auto;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:7px;}
 .pulse{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;}
-.sbsec{padding:20px;border-bottom:1px solid var(--border);}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.sbsec{padding:18px 20px;border-bottom:1px solid var(--border);}
 .sblbl{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;}
 textarea,select,input[type=text]{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:14px;padding:9px 12px;border-radius:var(--r);outline:none;transition:border-color .15s,box-shadow .15s;}
 textarea{resize:none;line-height:1.6;font-family:var(--mono);font-size:13px;}
@@ -47,9 +47,24 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .btn-p{background:var(--accent);color:#fff;}.btn-p:hover{background:#1d4ed8;}
 .btn-o{background:var(--surface);color:var(--text);border:1px solid var(--border);}.btn-o:hover{background:var(--bg);}
 .btn:disabled{opacity:.4;cursor:not-allowed;}
-.gpills{display:flex;flex-wrap:wrap;gap:5px;}
-.gpill{font-family:var(--mono);font-size:12px;font-weight:500;padding:3px 9px;background:var(--al);color:var(--accent);border:1px solid var(--ab);border-radius:5px;cursor:pointer;transition:background .12s;}
+.selected-panel{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:var(--r);background:#fafbfc;}
+.selected-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.selected-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);}
+.mini-btn{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:5px;padding:3px 7px;font-size:11px;font-weight:500;cursor:pointer;font-family:var(--sans);}
+.mini-btn:hover{color:var(--accent);border-color:var(--ab);background:var(--al);}
+.selected-list{display:flex;flex-wrap:wrap;gap:5px;min-height:24px;}
+.selchip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:12px;font-weight:500;padding:3px 7px;background:var(--accent);color:#fff;border-radius:5px;}
+.selchip button{border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:4px;width:16px;height:16px;line-height:14px;cursor:pointer;font-size:13px;font-family:var(--sans);}
+.selected-empty{font-size:12px;color:var(--faint);}
+.gene-browser{flex:1;display:flex;flex-direction:column;min-height:0;padding:16px 20px;border-bottom:none;}
+.gene-browser-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
+.gene-count{font-size:11px;color:var(--faint);white-space:nowrap;}
+.gene-filter{margin-bottom:10px;flex-shrink:0;}
+.picker-hint{font-size:12px;color:var(--muted);margin:-4px 0 10px;}
+.gpills{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;overflow-y:auto;min-height:140px;padding:2px 4px 8px 0;}
+.gpill{font-family:var(--mono);font-size:12px;font-weight:500;padding:5px 9px;background:var(--al);color:var(--accent);border:1px solid var(--ab);border-radius:6px;cursor:pointer;transition:background .12s,border-color .12s,color .12s;}
 .gpill:hover{background:#dbeafe;}
+.gpill.on{background:var(--accent);border-color:var(--accent);color:#fff;}
 .main{display:flex;flex-direction:column;overflow:hidden;}
 .tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;padding:0 24px;flex-shrink:0;}
 .tab{padding:16px;font-size:14px;font-weight:500;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all .15s;}
@@ -156,7 +171,16 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
   <aside class="sidebar">
     <div class="sbsec">
       <div class="sblbl">Search genes</div>
-      <textarea id="gene-input" rows="4" placeholder="TP53&#10;BRCA1&#10;KRAS&#10;one per line"></textarea>
+      <textarea id="gene-input" rows="3" placeholder="TP53&#10;BRCA1&#10;KRAS&#10;one per line" oninput="handleGeneInput()"></textarea>
+      <div class="selected-panel">
+        <div class="selected-head">
+          <div class="selected-title">Selected genes</div>
+          <button class="mini-btn" onclick="clearSelectedGenes()">Clear all</button>
+        </div>
+        <div class="selected-list" id="selected-genes">
+          <span class="selected-empty">No genes selected.</span>
+        </div>
+      </div>
       <div class="filters">
         <div>
           <label class="flabel">Cancer type</label>
@@ -192,8 +216,13 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
         <button class="btn btn-o" onclick="doExport()">Export CSV</button>
       </div>
     </div>
-    <div class="sbsec" style="flex:1;overflow-y:auto;">
-      <div class="sblbl">Genes in DB</div>
+    <div class="sbsec gene-browser">
+      <div class="gene-browser-head">
+        <div class="sblbl" style="margin-bottom:0;">Genes in DB</div>
+        <span class="gene-count" id="gene-count">Loading</span>
+      </div>
+      <input class="gene-filter" id="gene-filter" type="text" placeholder="Filter genes..." oninput="renderGenePicker()">
+      <div class="picker-hint">Click chips to add or remove genes.</div>
       <div class="gpills" id="db-genes"></div>
     </div>
   </aside>
@@ -285,9 +314,9 @@ function api(path, extra) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-const S = {page:1,perPage:25,genes:[],cancer:'all',func:'all',review:'all',conf:0,total:0,pages:1};
+const S = {page:1,perPage:25,genes:[],allGenes:[],cancer:'all',func:'all',review:'all',conf:0,total:0,pages:1};
 
-window.addEventListener('DOMContentLoaded', () => { loadStats(); setInterval(loadStats, 60000); });
+window.addEventListener('DOMContentLoaded', () => { renderSelectedGenes(); loadStats(); setInterval(loadStats, 60000); });
 
 function switchTab(id, el) {
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -305,23 +334,94 @@ async function loadStats() {
     document.getElementById('s-func').textContent  = fmt(d.functional_papers);
     document.getElementById('db-summary').textContent =
       `${fmt(d.total_papers)} papers · ${fmt(d.total_genes)} genes · synced ${d.last_sync||'—'}`;
-    document.getElementById('db-genes').innerHTML = (d.all_genes||[]).map(g=>
-      `<span class="gpill" onclick="quickSearch('${g}')">${g}</span>`).join('');
+    S.allGenes = d.all_genes || [];
+    renderGenePicker();
+    renderSelectedGenes();
   } catch(e) {
     document.getElementById('db-summary').textContent = 'DB unavailable';
   }
 }
 
+function parseGenes(text) {
+  const seen = new Set();
+  return String(text || '')
+    .split(/[\s,]+/)
+    .map(g => g.trim().toUpperCase())
+    .filter(Boolean)
+    .filter(g => {
+      if (seen.has(g)) return false;
+      seen.add(g);
+      return true;
+    });
+}
+
+function handleGeneInput() {
+  S.genes = parseGenes(document.getElementById('gene-input').value);
+  renderSelectedGenes();
+  renderGenePicker();
+}
+
+function setSelectedGenes(genes) {
+  S.genes = parseGenes(genes.join('\n'));
+  document.getElementById('gene-input').value = S.genes.join('\n');
+  renderSelectedGenes();
+  renderGenePicker();
+}
+
+function toggleGene(gene) {
+  gene = String(gene || '').toUpperCase();
+  const selected = new Set(parseGenes(document.getElementById('gene-input').value));
+  selected.has(gene) ? selected.delete(gene) : selected.add(gene);
+  setSelectedGenes(Array.from(selected));
+}
+
+function removeSelectedGene(gene) {
+  setSelectedGenes(parseGenes(document.getElementById('gene-input').value).filter(g => g !== gene));
+}
+
+function clearSelectedGenes() {
+  setSelectedGenes([]);
+  document.getElementById('s-match').textContent = '-';
+}
+
+function renderSelectedGenes() {
+  const selected = parseGenes(document.getElementById('gene-input').value);
+  S.genes = selected;
+  const el = document.getElementById('selected-genes');
+  if (!el) return;
+  if (!selected.length) {
+    el.innerHTML = '<span class="selected-empty">No genes selected.</span>';
+    return;
+  }
+  el.innerHTML = selected.map(g =>
+    `<span class="selchip">${esc(g)}<button title="Remove ${attr(g)}" onclick="removeSelectedGene('${attr(g)}')">×</button></span>`
+  ).join('');
+}
+
+function renderGenePicker() {
+  const el = document.getElementById('db-genes');
+  if (!el) return;
+  const q = (document.getElementById('gene-filter')?.value || '').trim().toUpperCase();
+  const selected = new Set(parseGenes(document.getElementById('gene-input').value));
+  const all = S.allGenes || [];
+  const genes = all.filter(g => !q || g.includes(q));
+  const count = document.getElementById('gene-count');
+  if (count) count.textContent = `${genes.length}/${all.length || 0}`;
+  el.innerHTML = genes.map(g =>
+    `<button type="button" class="gpill ${selected.has(g) ? 'on' : ''}" onclick="toggleGene('${attr(g)}')">${esc(g)}</button>`
+  ).join('') || '<span class="selected-empty">No matching genes.</span>';
+}
+
 function quickSearch(gene) {
-  document.getElementById('gene-input').value = gene;
+  setSelectedGenes([gene]);
   switchTab('results', document.querySelector('.tab'));
   doSearch();
 }
 
 async function doSearch(page) {
-  const genes = document.getElementById('gene-input').value
-    .split(/[\n,]+/).map(g=>g.trim().toUpperCase()).filter(Boolean);
+  const genes = parseGenes(document.getElementById('gene-input').value);
   if (!genes.length) { alert('Enter at least one gene symbol.'); return; }
+  setSelectedGenes(genes);
   S.genes=genes; S.cancer=document.getElementById('f-cancer').value;
   S.func=document.getElementById('f-func').value;
   S.review=document.getElementById('f-review').value;
@@ -545,8 +645,7 @@ function renderPages(page, pages) {
 }
 
 function doExport() {
-  const genes = document.getElementById('gene-input').value
-    .split(/[\n,]+/).map(g => g.trim().toUpperCase()).filter(Boolean);
+  const genes = parseGenes(document.getElementById('gene-input').value);
   if (!genes.length) { alert('Enter at least one gene first.'); return; }
   window.location.href = api('/api/export', {
     genes: genes.join(','),
