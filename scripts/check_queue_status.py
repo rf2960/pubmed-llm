@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from common import add_common_args, configure_db_runtime
@@ -14,6 +15,17 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_args(parser)
     parser.add_argument("--limit", type=int, default=30, help="Number of queue rows to print.")
     parser.add_argument("--show-done", action="store_true", help="Include done rows in queue preview.")
+    parser.add_argument(
+        "--stale-days",
+        type=int,
+        default=30,
+        help="Report genes with last_run_at older than this many days.",
+    )
+    parser.add_argument(
+        "--refresh-before",
+        default="",
+        help="Optional YYYY-MM-DD cutoff for monthly-campaign checks.",
+    )
     return parser
 
 
@@ -48,6 +60,25 @@ def main() -> int:
             """,
             (args.limit,),
         ).fetchall()
+        cutoff = (
+            args.refresh_before.strip()
+            if args.refresh_before
+            else (datetime.utcnow() - timedelta(days=max(args.stale_days, 0))).strftime("%Y-%m-%d %H:%M:%S")
+        )
+        stale = conn.execute(
+            """
+            SELECT gene, last_run_at, total_papers
+            FROM genes
+            WHERE last_run_at IS NULL OR last_run_at < ?
+            ORDER BY COALESCE(last_run_at, ''), gene COLLATE NOCASE
+            LIMIT ?
+            """,
+            (cutoff, args.limit),
+        ).fetchall()
+        stale_count = conn.execute(
+            "SELECT COUNT(*) FROM genes WHERE last_run_at IS NULL OR last_run_at < ?",
+            (cutoff,),
+        ).fetchone()[0]
 
     print(f"DB: {db_path}")
     print(f"Papers: {stats['total_papers']:,}")
@@ -59,6 +90,16 @@ def main() -> int:
     print(f"Queue done: {done}")
     print(f"Queue error: {error}")
     print()
+    print(f"Refresh cutoff: {cutoff}")
+    print(f"Genes needing refresh: {stale_count}")
+    if stale:
+        print("Refresh preview:")
+        for r in stale:
+            print(
+                f"  {r['gene']:<12} last_run={r['last_run_at'] or 'never':<19} "
+                f"papers={r['total_papers'] or 0}"
+            )
+        print()
     if not rows:
         print("No queue rows to show.")
         return 0

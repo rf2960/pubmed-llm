@@ -84,7 +84,8 @@ Review fields are part of the same DB file. Because the Hugging Face Space files
 ## Manual Steps That Still Exist
 
 - A lab member must run the Colab/GPU worker to process new queue requests.
-- Monthly refresh is run in chunks by changing `START_AT` and `MAX_GENES`.
+- Monthly refresh is now part of the main maintenance runner; set the refresh
+  interval/cutoff and rerun bounded batches until no genes need refresh.
 - Website deployment updates still require uploading/pushing the changed app files to the Hugging Face Space.
 - Drive credentials and Space passwords are managed manually through private secrets.
 

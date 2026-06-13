@@ -26,9 +26,9 @@ These files should stay easy to find:
 | `pubmed_llm_maintenance_runner.ipynb` | Main Colab runner for non-coding maintainers. |
 | `gene_function_lab/gene_function_lab.db` | Active SQLite database used by the website. Do not rename it. |
 | `scripts/check_queue_status.py` | Check database and queue status before and after work. |
-| `scripts/process_queue.py` | Process new gene requests from the website queue. |
-| `scripts/update_existing_genes.py` | Monthly refresh for genes already in the database. |
-| `scripts/check_gene_refresh.py` | Verify that a monthly refresh chunk updated successfully. |
+| `scripts/process_queue.py` | Main worker for new requests, failed requests, and stale monthly refresh. |
+| `scripts/update_existing_genes.py` | Advanced fallback for manual refresh chunks. |
+| `scripts/check_gene_refresh.py` | Advanced fallback verification for manual refresh chunks. |
 | `pipeline.py` | PubMed retrieval, evidence rules, and BioMistral classification. |
 | `db.py` | Database schema, migrations, and update helpers. |
 | `drive_sync.py` | Upload/download database sync with Google Drive. |
@@ -36,46 +36,47 @@ These files should stay easy to find:
 | `functional_study_cache/` | Runtime paper cache. Keep it, but do not edit manually. |
 | `logs/` | Maintenance logs. Keep recent logs; archive older logs by month. |
 
-## Normal Queue Processing
+## Normal Maintenance Run
 
-Use this when the website has pending gene requests.
+Use this for routine work. The runner processes pending website requests first,
+then refreshes existing genes whose `last_run_at` is older than the configured
+interval.
 
 1. Open `pubmed_llm_maintenance_runner.ipynb`.
 2. Run setup.
 3. Run "Check Status".
-4. Run "Process New Queue Requests".
-5. Run "Check Status" again.
-6. Confirm queue pending/error counts look correct.
-7. Confirm the website syncs to the updated DB.
+4. Edit the small settings cell if needed.
+5. Run "Main Maintenance Run".
+6. Run "Final Check".
+7. Confirm queue pending/error counts and stale refresh counts look correct.
+8. Confirm the website syncs to the updated DB.
 
-Use small batches first:
+Use bounded batches first:
 
 ```text
-MAX_REQUESTS = 3
-MAX_PAPERS = 50
+MAX_QUEUE_REQUESTS = 5
+MAX_PAPERS = 300
+MAX_REFRESH_GENES = 15
+REFRESH_MAX_PAPERS = 300
 ```
 
 If a previous run was interrupted and queue status shows `processing > 0`, set
-`RESET_PROCESSING = True` for one run, then set it back to `False`.
+`RESET_INTERRUPTED = True` for one run.
 
 ## Monthly Refresh
 
-Use this once per month to look for newly published papers for genes already in
-the database.
+Monthly refresh is now part of the normal maintenance run. Keep
+`REFRESH_EXISTING_GENES = True` and `UPDATE_INTERVAL_DAYS = 30`.
 
-Recommended pattern:
+For a paused refresh campaign, set a fixed cutoff date in the runner:
 
 ```text
-START_AT = 0
-MAX_GENES = 15
-MAX_PAPERS = 500
+REFRESH_BEFORE = '2026-06-08'
+MAX_REFRESH_GENES = 15
 ```
 
-After the chunk finishes:
-
-1. Run the refresh verification cell.
-2. Check that the selected genes have a recent `last_run_at`.
-3. Change `START_AT` to the next chunk: `15`, then `30`, then `45`, etc.
+Then rerun the same main maintenance cell until `Check Status` reports
+`Genes needing refresh: 0` for that cutoff.
 
 Do not run all genes at once in Colab unless you are prepared for a long run and
 possible runtime interruption.
@@ -137,4 +138,3 @@ Safe to delete:
 - `.pyc` files
 
 See `docs/drive-cleanup.md` for the full cleanup checklist.
-

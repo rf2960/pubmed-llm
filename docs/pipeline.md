@@ -7,9 +7,10 @@ This document describes the current extraction pipeline and its maintenance boun
 | Task | Entry point |
 | --- | --- |
 | Process website queue | `scripts/process_queue.py` |
-| Refresh existing genes | `scripts/update_existing_genes.py` |
+| Refresh stale existing genes | `scripts/process_queue.py --refresh-stale` |
 | Verify DB/queue status | `scripts/check_queue_status.py` |
-| Verify monthly refresh chunks | `scripts/check_gene_refresh.py` |
+| Manual refresh fallback | `scripts/update_existing_genes.py` |
+| Verify manual refresh chunks | `scripts/check_gene_refresh.py` |
 | Low-code Colab maintenance | `pubmed_llm_maintenance_runner.ipynb` |
 
 The core paper analysis function is:

@@ -97,11 +97,11 @@ Process a small batch:
 !python -u scripts/process_queue.py --max-requests 1 --max-papers 25 --reset-processing --upload-at-end
 ```
 
-For monthly refresh, process stable chunks and verify each chunk:
+For routine monthly refresh, use the unified maintenance worker:
 
 ```python
-!python -u scripts/update_existing_genes.py --start-at 0 --max-genes 15 --max-papers 500 --upload
-!python -u scripts/check_gene_refresh.py --start-at 0 --max-genes 15 --since 2026-06-08
+!python -u scripts/process_queue.py --max-requests 5 --max-papers 300 --retry-errors --reset-processing --refresh-stale --update-interval-days 30 --max-refresh-genes 15 --refresh-max-papers 300 --upload-at-end
+!python -u scripts/check_queue_status.py --stale-days 30
 ```
 
 ## Secret Handling

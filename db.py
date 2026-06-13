@@ -383,6 +383,7 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
         "pancreatic":    cancer_counts.get("pancreatic", 0),
         "gi":            cancer_counts.get("gi", 0),
         "other_cancer":  cancer_counts.get("cancer", 0),
+        "unknown_cancer": cancer_counts.get("unknown", 0),
         "in_vitro_only": int(loc["vitro_only"] or 0),
         "in_vivo_only":  int(loc["vivo_only"]  or 0),
         "both":          int(loc["both"]        or 0),

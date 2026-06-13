@@ -91,7 +91,9 @@ flowchart TD
     L --> M["Drive upload or website sync"]
 ```
 
-Monthly refresh uses the same pipeline but starts from existing genes already in the database. It runs in stable alphabetical chunks so maintainers can safely process `start-at 0`, then `15`, then `30`, and continue without losing their place.
+Monthly refresh now uses the same maintenance entry point. `scripts/process_queue.py`
+processes pending queue requests first, then refreshes existing genes whose
+`genes.last_run_at` is older than the configured interval or fixed cutoff date.
 
 ## Repository Structure
 
@@ -103,9 +105,9 @@ Monthly refresh uses the same pipeline but starts from existing genes already in
 | `drive_sync.py` | Google Drive download/upload logic for the website DB. |
 | `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |
 | `scripts/check_queue_status.py` | Prints DB and queue counts. |
-| `scripts/process_queue.py` | Processes pending or failed gene requests in bounded batches. |
-| `scripts/update_existing_genes.py` | Monthly refresh for existing genes. |
-| `scripts/check_gene_refresh.py` | Verifies selected genes after a monthly refresh chunk. |
+| `scripts/process_queue.py` | Main maintenance worker for pending requests, failed requests, and stale existing-gene refresh. |
+| `scripts/update_existing_genes.py` | Advanced fallback for manual existing-gene refresh chunks. |
+| `scripts/check_gene_refresh.py` | Advanced fallback verification for manual refresh chunks. |
 | `scripts/common.py` | Shared script configuration, logging, DB path, cache path, and upload helpers. |
 | `pubmed_llm_maintenance_runner.ipynb` | Recommended Colab notebook for non-coding maintainers. |
 | `README_FOR_DRIVE.md` | Start-here handoff guide for the Google Drive working folder. |
@@ -193,30 +195,44 @@ python -u scripts/check_queue_status.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
 ```
 
-Process a small queue batch:
+Run the main maintenance workflow. This processes queue rows first, then
+refreshes existing genes whose `last_run_at` is older than the configured
+cutoff:
 
 ```bash
 python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
-  --max-requests 3 \
-  --max-papers 50 \
-  --upload-at-end
-```
-
-Retry failed queue rows after a fix:
-
-```bash
-python -u scripts/process_queue.py \
-  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
-  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --max-requests 5 \
+  --max-papers 300 \
   --retry-errors \
-  --max-requests 3 \
-  --max-papers 50 \
+  --reset-processing \
+  --refresh-stale \
+  --update-interval-days 30 \
+  --max-refresh-genes 15 \
+  --refresh-max-papers 300 \
   --upload-at-end
 ```
 
-Monthly refresh in a stable chunk:
+To finish a paused monthly campaign, use a fixed cutoff date. For example, this
+continues genes not refreshed since June 8, 2026:
+
+```bash
+python -u scripts/process_queue.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --max-requests 5 \
+  --max-papers 300 \
+  --retry-errors \
+  --reset-processing \
+  --refresh-stale \
+  --refresh-before 2026-06-08 \
+  --max-refresh-genes 15 \
+  --refresh-max-papers 300 \
+  --upload-at-end
+```
+
+The older monthly-refresh script remains available for manual chunk control:
 
 ```bash
 python -u scripts/update_existing_genes.py \

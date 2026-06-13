@@ -74,9 +74,9 @@ Keep these in the active workspace.
 | `requirements-worker.txt` | Colab worker dependencies. |
 | `scripts/common.py` | Shared runtime config and logging helpers. |
 | `scripts/check_queue_status.py` | Queue and DB status check. |
-| `scripts/process_queue.py` | Processes website queue. |
-| `scripts/update_existing_genes.py` | Monthly refresh. |
-| `scripts/check_gene_refresh.py` | Verifies monthly refresh chunks. |
+| `scripts/process_queue.py` | Main worker for website queue and stale gene refresh. |
+| `scripts/update_existing_genes.py` | Advanced fallback for manual refresh chunks. |
+| `scripts/check_gene_refresh.py` | Advanced fallback verifier for manual refresh chunks. |
 | `docs/` | Maintenance documentation. |
 | `gene_function_lab/gene_function_lab.db` | Active source-of-truth database. |
 | `functional_study_cache/` | Runtime cache. Avoid manual edits. |
@@ -160,4 +160,3 @@ secrets/
 ```
 
 The old notebook should not be visible in the active root.
-

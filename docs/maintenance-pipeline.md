@@ -22,7 +22,7 @@ Monthly refresh is also supported:
 
 ```text
 Existing genes in SQLite
-  -> Colab monthly refresh cell
+  -> unified Colab maintenance cell
   -> PubMed search for each gene
   -> skip PMIDs already in SQLite/cache
   -> process only new PMIDs
@@ -44,8 +44,8 @@ The updated code now:
 - skips PMIDs already present in the database
 - marks non-cancer skipped PMIDs in SQLite when possible
 - processes queue requests in bounded batches instead of an endless Colab loop
-- refreshes existing genes in configurable chunks
-- verifies monthly refresh chunks with `scripts/check_gene_refresh.py`
+- refreshes stale existing genes from the same maintenance entry point
+- reports genes still needing refresh with `scripts/check_queue_status.py`
 
 ## Why Colab Can Be Slow
 
@@ -66,10 +66,10 @@ For 50 queued genes, a naive run with `max_papers=300` can mean up to 15,000 pap
 For Colab:
 
 - Process 3-5 requested genes per run.
-- Use `MAX_REQUESTS_THIS_RUN` in notebook Cell 5.
-- Use `MAX_NEW_PAPERS_PER_GENE = 50` or `100` for first-pass triage.
-- Run monthly refresh in chunks with `START_AT_INDEX` and `MAX_GENES_THIS_RUN`.
-- Verify each completed refresh chunk before moving to the next `START_AT`.
+- Use `MAX_QUEUE_REQUESTS` in the notebook settings cell.
+- Use `MAX_PAPERS = 50` or `100` for first-pass triage, or `300` for routine maintenance.
+- Keep `REFRESH_EXISTING_GENES = True` and run bounded refreshes with `MAX_REFRESH_GENES`.
+- Verify progress with the final status check before starting another batch.
 - Avoid leaving the worker polling forever when the queue is empty.
 
 For heavy queue backlogs:

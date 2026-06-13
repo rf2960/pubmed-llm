@@ -37,8 +37,8 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 | Gene summaries | SQLite `genes` | Stores per-gene paper/function counts and last run time. |
 | Worker pipeline | `pipeline.py` | PubMed search, full-text fetch, evidence extraction, rules, LLM classification. |
 | Human review API | `app.py` `/api/review` | Saves reviewer status, label, notes, and reviewer metadata for a paper. |
-| Queue worker | `scripts/process_queue.py` | Processes pending queue requests in controlled batches. |
-| Monthly refresh | `scripts/update_existing_genes.py` | Refreshes existing genes for new PubMed papers. |
+| Main worker | `scripts/process_queue.py` | Processes pending queue requests, retries failed requests, and refreshes stale existing genes in controlled batches. |
+| Manual refresh fallback | `scripts/update_existing_genes.py` | Advanced manual chunk refresh for existing genes. |
 | Status check | `scripts/check_queue_status.py` | Prints DB and queue status. |
 | Refresh verification | `scripts/check_gene_refresh.py` | Confirms the selected refresh chunk and last run times. |
 
@@ -86,9 +86,9 @@ For routine lab use, prefer:
 pubmed_llm_maintenance_runner.ipynb
 ```
 
-It contains a setup cell, one small editable settings cell, and separate task
-cells for checking status, processing the queue, retrying errors, monthly
-refresh, code updates, and upload.
+It contains setup, one small editable settings cell, a status check, one main
+maintenance run cell, and a final check. Routine queue processing, retry, and
+monthly refresh all go through the same main run cell.
 
 If running commands manually, run this once at the top of a Colab runtime after
 mounting Drive:
@@ -149,42 +149,53 @@ This prints:
 - error requests
 - queue preview
 
-## Process The Current Backlog
+## Main Maintenance Run
 
-For the current backlog, do not process all queued genes in one run.
+Use `scripts/process_queue.py` as the normal maintenance entry point. It handles
+new queue requests first, then refreshes existing genes whose `last_run_at` is
+older than the configured cutoff.
 
-Start with a small smoke test:
-
-```bash
-python -u scripts/process_queue.py \
-  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
-  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
-  --max-requests 1 \
-  --max-papers 25 \
-  --reset-processing \
-  --upload-at-end
-```
-
-If that succeeds, increase gradually:
-
-```bash
-python -u scripts/process_queue.py \
-  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
-  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
-  --max-requests 3 \
-  --max-papers 50 \
-  --upload-at-end
-```
-
-For a larger batch on a stable GPU machine:
+Recommended Colab-sized batch:
 
 ```bash
 python -u scripts/process_queue.py \
   --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
   --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
   --max-requests 5 \
-  --max-papers 100 \
+  --max-papers 300 \
+  --retry-errors \
+  --reset-processing \
+  --refresh-stale \
+  --update-interval-days 30 \
+  --max-refresh-genes 15 \
+  --refresh-max-papers 300 \
   --upload-at-end
+```
+
+To finish a paused monthly campaign, set a fixed cutoff date. This selects genes
+whose `last_run_at` is still before the campaign start:
+
+```bash
+python -u scripts/process_queue.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --cache-dir /content/drive/MyDrive/pubmed_llm/functional_study_cache \
+  --max-requests 5 \
+  --max-papers 300 \
+  --retry-errors \
+  --reset-processing \
+  --refresh-stale \
+  --refresh-before 2026-06-08 \
+  --max-refresh-genes 15 \
+  --refresh-max-papers 300 \
+  --upload-at-end
+```
+
+Before and after the run, check status with the same cutoff:
+
+```bash
+python -u scripts/check_queue_status.py \
+  --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db \
+  --refresh-before 2026-06-08
 ```
 
 ### Fast Rules-Only Triage
@@ -202,11 +213,11 @@ python -u scripts/process_queue.py \
 
 Use this only when you need a rough pass. LLM-assisted results are preferred for final review.
 
-## Monthly Refresh Existing Genes
+## Advanced Manual Monthly Refresh
 
-Refresh existing genes in chunks. By default, `--start-at` uses stable
-alphabetical gene order, so `0`, `5`, `10`, `15`, and so on are safe chunk
-boundaries even after earlier batches update `last_run_at`.
+The main runner now covers routine monthly refresh. Use
+`scripts/update_existing_genes.py` only when you intentionally want manual
+alphabetical chunk control.
 
 ```bash
 python -u scripts/update_existing_genes.py \

@@ -59,12 +59,20 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .scard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:18px 20px;}
 .sval{font-size:30px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.03em;}
 .slbl{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:5px;}
-.gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:24px;}
-.gcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:20px;cursor:pointer;transition:all .15s;}
+.gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:24px;}
+.gcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:18px;cursor:pointer;transition:all .15s;}
 .gcard:hover{border-color:var(--accent);box-shadow:0 2px 12px rgba(37,99,235,.1);}
 .gcard.sel{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.1);}
 .gcname{font-size:22px;font-weight:700;color:var(--text);font-family:var(--mono);letter-spacing:-.02em;}
 .gcinfo{font-size:14px;color:var(--muted);margin-top:5px;}.gcinfo strong{color:var(--text);}
+.gchead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.gcrate{text-align:right;font-size:12px;color:var(--muted);}.gcrate strong{display:block;font-size:22px;line-height:1;color:var(--text);}
+.gcsection{border-top:1px solid var(--border);padding-top:10px;margin-top:10px;}
+.gclabel{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;}
+.gcmetrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+.gcmetric{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 8px;min-width:0;}
+.gcmetric span{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.gcmetric strong{display:block;font-size:15px;color:var(--text);font-family:var(--mono);font-weight:600;}
 .minibar{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:12px;background:var(--bg);}
 .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;}
 .tag{font-size:11px;font-family:var(--mono);font-weight:500;padding:2px 7px;border-radius:4px;}
@@ -346,27 +354,53 @@ function renderCards(genes, summaries) {
       <div class="gcname">${gene}</div>
       <div class="gcinfo" style="color:var(--amber);margin-top:6px;">Not in database</div>
       <div class="gcinfo" style="font-size:13px;margin-top:3px;">Click to request</div></div>`;
-    const pct=Math.round(100*s.functional/s.total), m=s.methods||{};
-    const tags=[
-      m.knockout?`<span class="tag t-ko">KO×${m.knockout}</span>`:'',
-      m.knockdown?`<span class="tag t-kd">KD×${m.knockdown}</span>`:'',
-      m.shrna?`<span class="tag t-shrna">shRNA×${m.shrna}</span>`:'',
-      m.sirna?`<span class="tag t-sirna">siRNA×${m.sirna}</span>`:'',
-      m.crispr?`<span class="tag t-crispr">CRISPR×${m.crispr}</span>`:'',
-    ].join('');
-    const vt=s.functional?Math.round(100*s.in_vitro_only/s.functional):0;
-    const vv=s.functional?Math.round(100*s.in_vivo_only/s.functional):0;
-    const bt=s.functional?Math.round(100*s.both/s.functional):0;
+
+    const m = s.methods || {};
+    const pct = s.total ? Math.round(100 * s.functional / s.total) : 0;
+    const evidenceKnown = (s.in_vitro_only || 0) + (s.in_vivo_only || 0) + (s.both || 0);
+    const evidenceUnknown = Math.max((s.functional || 0) - evidenceKnown, 0);
+    const methodRows = [
+      ['KO', m.knockout || 0, 't-ko'],
+      ['KD', m.knockdown || 0, 't-kd'],
+      ['shRNA', m.shrna || 0, 't-shrna'],
+      ['siRNA', m.sirna || 0, 't-sirna'],
+      ['CRISPR', m.crispr || 0, 't-crispr'],
+      ['Screen', m.crispr_screen || 0, 't-crispr']
+    ].filter(x => x[1] > 0);
+    const methodTags = methodRows.map(([label, count, cls]) =>
+      `<span class="tag ${cls}">${label}: ${count}</span>`
+    ).join('');
+
     return `<div class="gcard sel">
-      <div class="gcname">${gene}</div>
-      <div class="gcinfo"><strong>${s.functional}</strong> functional / ${s.total} papers (${pct}%)</div>
-      <div class="gcinfo">Pancreatic: <strong>${s.pancreatic}</strong> &nbsp; GI: <strong>${s.gi}</strong></div>
-      <div class="minibar">
-        <div style="width:${vt}%;background:var(--purple);"></div>
-        <div style="width:${vv}%;background:#f97316;"></div>
-        <div style="width:${bt}%;background:var(--accent);"></div>
+      <div class="gchead">
+        <div>
+          <div class="gcname">${gene}</div>
+          <div class="gcinfo"><strong>${s.functional}</strong> functional studies from <strong>${s.total}</strong> papers</div>
+        </div>
+        <div class="gcrate"><strong>${pct}%</strong> functional</div>
       </div>
-      ${tags?`<div class="tags">${tags}</div>`:''}
+
+      <div class="gcsection">
+        <div class="gclabel">Cancer type</div>
+        <div class="gcmetrics">
+          <div class="gcmetric"><span>Pancreatic</span><strong>${s.pancreatic || 0}</strong></div>
+          <div class="gcmetric"><span>GI</span><strong>${s.gi || 0}</strong></div>
+          <div class="gcmetric"><span>Other cancer</span><strong>${s.other_cancer || 0}</strong></div>
+          <div class="gcmetric"><span>Unknown</span><strong>${s.unknown_cancer || 0}</strong></div>
+        </div>
+      </div>
+
+      <div class="gcsection">
+        <div class="gclabel">Functional evidence</div>
+        <div class="gcmetrics">
+          <div class="gcmetric"><span>In vitro only</span><strong>${s.in_vitro_only || 0}</strong></div>
+          <div class="gcmetric"><span>In vivo only</span><strong>${s.in_vivo_only || 0}</strong></div>
+          <div class="gcmetric"><span>Both</span><strong>${s.both || 0}</strong></div>
+          <div class="gcmetric"><span>Unspecified</span><strong>${evidenceUnknown}</strong></div>
+        </div>
+      </div>
+
+      ${methodTags ? `<div class="gcsection"><div class="gclabel">Perturbation methods</div><div class="tags">${methodTags}</div></div>` : ''}
     </div>`;
   }).join('');
   el.style.display='grid';
