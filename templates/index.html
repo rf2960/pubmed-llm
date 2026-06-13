@@ -515,7 +515,7 @@ function renderCards(genes, summaries) {
     const mainCancer = topBreakdown(cancerItems);
     const mainEvidence = topBreakdown(evidenceItems);
     const support = supportBand(s.support_avg || 0);
-    const supportScore = s.support_avg ? `${Math.round((s.support_avg || 0) * 100)}/100` : 'not scored';
+    const supportScore = s.support_avg ? Number(s.support_avg || 0).toFixed(2) : 'not scored';
     const methodRows = [
       ['KO', m.knockout || 0, 't-ko'],
       ['KD', m.knockdown || 0, 't-kd'],
@@ -610,7 +610,7 @@ function renderTable(rows, total) {
       <td style="font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;">${esc(row.year || '')}</td>
       <td>${cb}</td><td>${fb}${dis}</td><td>${wb}</td>
       <td><div class="cbar"><div class="cbg"><div class="cfg" style="width:${Math.round(conf * 100)}%;background:${cc};"></div></div>
-      <span class="cnum">${Math.round(conf * 100)}/100</span></div><div class="tdm">${esc(label)} heuristic</div></td>
+      <span class="cnum">${conf.toFixed(2)}</span></div><div class="tdm">${esc(label)} heuristic</div></td>
       <td><span class="badge bprio-${attr(priority)}">${esc(status)}</span></td>
       <td><button class="xbtn" onclick="toggleEv('${uid}',this)">More</button></td>
     </tr>
