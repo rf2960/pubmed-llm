@@ -333,6 +333,31 @@ def api_export():
         headers={"Content-Disposition": f"attachment; filename={fname}"}
     )
 
+@app.route("/api/export_gene_summary")
+def api_export_gene_summary():
+    auth = require_auth()
+    if auth: return auth
+    genes_raw = request.args.get("genes", "").strip()
+    min_conf = float(request.args.get("min_conf", 0.0))
+    genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()] if genes_raw else None
+    try:
+        _ensure_db_schema()
+        df = database.export_gene_summary_to_df(
+            genes=genes,
+            min_conf=min_conf,
+            db_path=_local_db(),
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    buf.seek(0)
+    fname = f"gene_summary_{'_'.join(genes[:3]) if genes else 'all'}.csv"
+    return Response(
+        buf.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"}
+    )
+
 @app.route("/api/sync", methods=["GET", "POST"])
 def api_sync():
     auth = require_auth()

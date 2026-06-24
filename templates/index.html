@@ -50,6 +50,7 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .selected-panel{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:var(--r);background:#fafbfc;}
 .selected-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
 .selected-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);}
+.selected-actions{display:flex;gap:5px;align-items:center;}
 .mini-btn{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:5px;padding:3px 7px;font-size:11px;font-weight:500;cursor:pointer;font-family:var(--sans);}
 .mini-btn:hover{color:var(--accent);border-color:var(--ab);background:var(--al);}
 .selected-list{display:flex;flex-wrap:wrap;gap:5px;min-height:24px;}
@@ -101,6 +102,16 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .bchip{display:inline-flex;gap:5px;align-items:center;border-radius:5px;padding:3px 7px;font-size:11px;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
 .bchip i{width:7px;height:7px;border-radius:2px;display:inline-block;}
 .bchip strong{font-family:var(--mono);color:var(--text);font-weight:600;}
+.cancer-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px;}
+.cancer-detail{border:1px solid var(--border);border-radius:7px;background:#fafbfc;padding:7px 8px;min-width:0;}
+.cancer-detail-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);}
+.cancer-detail-name{display:flex;align-items:center;gap:5px;min-width:0;}
+.cancer-detail-name i{width:7px;height:7px;border-radius:2px;display:inline-block;flex:0 0 auto;}
+.cancer-detail-name span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cancer-detail strong{display:block;margin-top:2px;font-family:var(--mono);font-size:15px;color:var(--text);}
+.cancer-detail small{display:block;margin-top:1px;font-size:10px;color:var(--faint);}
+.mini-meter{height:4px;background:var(--bg);border-radius:999px;overflow:hidden;margin-top:6px;}
+.mini-meter-fill{height:100%;border-radius:999px;background:var(--accent);}
 .support-mix{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px;}
 .support-pill{border-radius:6px;padding:6px 7px;font-size:11px;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
 .support-pill strong{display:block;font-family:var(--mono);font-size:14px;color:var(--text);}
@@ -112,6 +123,7 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);overflow:hidden;}
 .tbl-top{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
 .tbl-title{font-size:15px;font-weight:600;color:var(--text);}
+.tbl-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 .csvbtn{background:var(--al);color:var(--accent);border:1px solid var(--ab);border-radius:6px;font-size:13px;font-weight:500;padding:5px 14px;cursor:pointer;font-family:var(--sans);}
 .csvbtn:hover{background:#dbeafe;}
 table{width:100%;border-collapse:collapse;font-size:14px;}
@@ -194,7 +206,10 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
       <div class="selected-panel">
         <div class="selected-head">
           <div class="selected-title">Selected genes</div>
-          <button class="mini-btn" onclick="clearSelectedGenes()">Clear all</button>
+          <div class="selected-actions">
+            <button class="mini-btn" onclick="selectAllGenes()">Select all</button>
+            <button class="mini-btn" onclick="clearSelectedGenes()">Clear all</button>
+          </div>
         </div>
         <div class="selected-list" id="selected-genes">
           <span class="selected-empty">No genes selected.</span>
@@ -241,7 +256,8 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
           </div>
         </div>
         <button class="btn btn-p" onclick="doSearch()">Search Database</button>
-        <button class="btn btn-o" onclick="doExport()">Export CSV</button>
+        <button class="btn btn-o" onclick="doExport()">Export Papers CSV</button>
+        <button class="btn btn-o" onclick="doExportGeneSummary()">Export Gene Summary CSV</button>
       </div>
     </div>
   </aside>
@@ -262,7 +278,10 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
       <div id="tbl-wrap" class="tbl-wrap" style="display:none;">
         <div class="tbl-top">
           <span class="tbl-title" id="tbl-title">Papers</span>
-          <button class="csvbtn" onclick="doExport()">Export CSV</button>
+          <div class="tbl-actions">
+            <button class="csvbtn" onclick="doExport()">Export Papers CSV</button>
+            <button class="csvbtn" onclick="doExportGeneSummary()">Export Gene Summary CSV</button>
+          </div>
         </div>
         <div id="tbl-body"></div>
         <div class="pages" id="pages"></div>
@@ -403,6 +422,14 @@ function clearSelectedGenes() {
   document.getElementById('s-match').textContent = '-';
 }
 
+function selectAllGenes() {
+  if (!S.allGenes || !S.allGenes.length) {
+    alert('Gene list is still loading. Try again in a few seconds.');
+    return;
+  }
+  setSelectedGenes(S.allGenes);
+}
+
 function renderSelectedGenes() {
   const selected = parseGenes(document.getElementById('gene-input').value);
   S.genes = selected;
@@ -483,6 +510,21 @@ function breakdownChips(items) {
   ).join('')}</div>`;
 }
 
+function cancerDetailCards(items) {
+  return `<div class="cancer-detail-grid">${items.map(x => {
+    const pct = x.total ? Math.round(100 * x.functional / x.total) : 0;
+    return `<div class="cancer-detail">
+      <div class="cancer-detail-top">
+        <div class="cancer-detail-name"><i class="${x.cls}"></i><span>${esc(x.label)}</span></div>
+        <span>${pct}%</span>
+      </div>
+      <strong>${x.functional}/${x.total}</strong>
+      <small>functional / total papers</small>
+      <div class="mini-meter"><div class="mini-meter-fill ${x.cls}" style="width:${Math.max(2, pct)}%;"></div></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
 function supportBand(avg) {
   if (!avg) return {label: 'Not scored', cls: 'support-none'};
   if (avg >= .8) return {label: 'Strong support', cls: 'support-strong'};
@@ -503,11 +545,18 @@ function renderCards(genes, summaries) {
     const pct = s.total ? Math.round(100 * s.functional / s.total) : 0;
     const evidenceKnown = (s.in_vitro_only || 0) + (s.in_vivo_only || 0) + (s.both || 0);
     const evidenceUnknown = Math.max((s.functional || 0) - evidenceKnown, 0);
+    const cb = s.cancer_breakdown || {};
+    const cancerDetail = (key, label, fallback, cls) => {
+      const d = cb[key] || {};
+      const total = Number(d.total ?? fallback ?? 0) || 0;
+      const functional = Number(d.functional ?? fallback ?? 0) || 0;
+      return {label, total, functional, count: functional, cls};
+    };
     const cancerItems = [
-      {label: 'Pancreatic', count: s.pancreatic || 0, cls: 'c-panc'},
-      {label: 'GI', count: s.gi || 0, cls: 'c-gi'},
-      {label: 'Other cancer', count: s.other_cancer || 0, cls: 'c-other'},
-      {label: 'Unknown', count: s.unknown_cancer || 0, cls: 'c-unknown'}
+      cancerDetail('pancreatic', 'Pancreatic', s.pancreatic || 0, 'c-panc'),
+      cancerDetail('gi', 'GI', s.gi || 0, 'c-gi'),
+      cancerDetail('cancer', 'Other cancer', s.other_cancer || 0, 'c-other'),
+      cancerDetail('unknown', 'Unknown', s.unknown_cancer || 0, 'c-unknown')
     ];
     const evidenceItems = [
       {label: 'Both', count: s.both || 0, cls: 'e-both'},
@@ -553,7 +602,7 @@ function renderCards(genes, summaries) {
       <div class="gcsection">
         <div class="gclabel">Cancer type</div>
         ${segmentedBar(cancerItems, s.functional || 0)}
-        ${breakdownChips(cancerItems)}
+        ${cancerDetailCards(cancerItems)}
       </div>
 
       <div class="gcsection">
@@ -744,6 +793,13 @@ function doExport() {
     review_status: document.getElementById('f-review').value,
     min_conf: document.getElementById('f-conf').value
   });
+}
+
+function doExportGeneSummary() {
+  const genes = parseGenes(document.getElementById('gene-input').value);
+  const params = { min_conf: document.getElementById('f-conf').value };
+  if (genes.length) params.genes = genes.join(',');
+  window.location.href = api('/api/export_gene_summary', params);
 }
 
 async function submitRequest() {

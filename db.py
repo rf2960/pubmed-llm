@@ -361,6 +361,31 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
             (g, min_conf)
         ).fetchall()
         cancer_counts = {r["cancer_type"]: r["n"] for r in cancer_rows}
+        cancer_detail_rows = conn.execute(
+            """SELECT COALESCE(cancer_type, 'unknown') as cancer_type,
+                      COUNT(*) as total,
+                      SUM(CASE WHEN functional_study=1 THEN 1 ELSE 0 END) as functional
+               FROM papers
+               WHERE gene=? AND confidence>=?
+               GROUP BY COALESCE(cancer_type, 'unknown')""",
+            (g, min_conf)
+        ).fetchall()
+        cancer_breakdown = {
+            "pancreatic": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
+            "gi": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
+            "cancer": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
+            "unknown": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
+        }
+        for row in cancer_detail_rows:
+            key = row["cancer_type"] or "unknown"
+            total_for_type = int(row["total"] or 0)
+            functional_for_type = int(row["functional"] or 0)
+            cancer_breakdown[key] = {
+                "total": total_for_type,
+                "functional": functional_for_type,
+                "nonfunctional": max(total_for_type - functional_for_type, 0),
+                "functional_pct": round(functional_for_type / total_for_type, 3) if total_for_type else 0.0,
+            }
         loc = conn.execute(
             """SELECT
                 SUM(in_vitro=1 AND in_vivo=0) as vitro_only,
@@ -404,6 +429,7 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
         "gi":            cancer_counts.get("gi", 0),
         "other_cancer":  cancer_counts.get("cancer", 0),
         "unknown_cancer": cancer_counts.get("unknown", 0),
+        "cancer_breakdown": cancer_breakdown,
         "in_vitro_only": int(loc["vitro_only"] or 0),
         "in_vivo_only":  int(loc["vivo_only"]  or 0),
         "both":          int(loc["both"]        or 0),
@@ -510,6 +536,76 @@ def export_to_df(
         "review_status", "review_label", "review_notes", "reviewed_by", "reviewed_at",
     ]
     return df[[c for c in export_cols if c in df.columns]]
+
+
+def export_gene_summary_to_df(
+    genes: list = None,
+    min_conf: float = 0.0,
+    db_path: str = None,
+) -> pd.DataFrame:
+    """Return one row per gene with review-friendly aggregate evidence counts.
+
+    This is intentionally gene-level, not paper-level. It is used by the
+    website's "Export Gene Summary CSV" action so lab members can compare
+    selected genes without manually aggregating the paper table.
+    """
+    with get_conn(db_path) as conn:
+        if genes:
+            gene_list = [g.upper().strip() for g in genes if g and g.strip()]
+        else:
+            rows = conn.execute("SELECT gene FROM genes ORDER BY gene").fetchall()
+            gene_list = [r["gene"] for r in rows]
+            if not gene_list:
+                rows = conn.execute("SELECT DISTINCT gene FROM papers ORDER BY gene").fetchall()
+                gene_list = [r["gene"] for r in rows]
+
+    summary_rows = []
+    cancer_labels = [
+        ("pancreatic", "pancreatic"),
+        ("gi", "gi"),
+        ("cancer", "other_cancer"),
+        ("unknown", "unknown"),
+    ]
+    for gene in gene_list:
+        summary = gene_summary(gene, min_conf=min_conf, db_path=db_path)
+        methods = summary.get("methods", {})
+        row = {
+            "gene": summary["gene"],
+            "total_papers": summary["total"],
+            "functional_papers": summary["functional"],
+            "functional_pct": round(summary["functional"] / summary["total"], 3) if summary["total"] else 0.0,
+            "in_vitro_only": summary["in_vitro_only"],
+            "in_vivo_only": summary["in_vivo_only"],
+            "both_in_vitro_and_in_vivo": summary["both"],
+            "unspecified_evidence": max(
+                summary["functional"]
+                - summary["in_vitro_only"]
+                - summary["in_vivo_only"]
+                - summary["both"],
+                0,
+            ),
+            "knockout": methods.get("knockout", 0),
+            "knockdown": methods.get("knockdown", 0),
+            "shrna": methods.get("shrna", 0),
+            "sirna": methods.get("sirna", 0),
+            "crispr": methods.get("crispr", 0),
+            "crispr_screen": methods.get("crispr_screen", 0),
+            "avg_evidence_support": round(summary["support_avg"], 3),
+            "strong_support_papers": summary["support_strong"],
+            "moderate_support_papers": summary["support_moderate"],
+            "weak_support_papers": summary["support_weak"],
+            "rule_llm_disagreements": summary["support_disagree"],
+            "unreviewed_functional_papers": summary["support_unreviewed"],
+            "already_processed": summary["already_processed"],
+        }
+        for source_key, export_key in cancer_labels:
+            detail = summary.get("cancer_breakdown", {}).get(source_key, {})
+            row[f"{export_key}_total_papers"] = int(detail.get("total", 0))
+            row[f"{export_key}_functional_papers"] = int(detail.get("functional", 0))
+            row[f"{export_key}_functional_pct"] = round(float(detail.get("functional_pct", 0.0)), 3)
+        summary_rows.append(row)
+
+    return pd.DataFrame(summary_rows)
 
 
 def update_paper_review(
