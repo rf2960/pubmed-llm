@@ -321,6 +321,12 @@ def query_papers(
         where.append("functional_study = 1")
     elif functional == "false":
         where.append("functional_study = 0")
+    elif functional == "in_vitro":
+        where.append("functional_study = 1 AND in_vitro = 1 AND in_vivo = 0")
+    elif functional == "in_vivo":
+        where.append("functional_study = 1 AND in_vitro = 0 AND in_vivo = 1")
+    elif functional == "both":
+        where.append("functional_study = 1 AND in_vitro = 1 AND in_vivo = 1")
     if review_status != "all":
         where.append("COALESCE(review_status, 'unreviewed') = ?"); params.append(review_status)
     if min_conf > 0:
@@ -364,17 +370,46 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
         cancer_detail_rows = conn.execute(
             """SELECT COALESCE(cancer_type, 'unknown') as cancer_type,
                       COUNT(*) as total,
-                      SUM(CASE WHEN functional_study=1 THEN 1 ELSE 0 END) as functional
+                      SUM(CASE WHEN functional_study=1 THEN 1 ELSE 0 END) as functional,
+                      SUM(CASE WHEN functional_study=1 AND in_vitro=1 AND in_vivo=0 THEN 1 ELSE 0 END) as in_vitro_only,
+                      SUM(CASE WHEN functional_study=1 AND in_vitro=0 AND in_vivo=1 THEN 1 ELSE 0 END) as in_vivo_only,
+                      SUM(CASE WHEN functional_study=1 AND in_vitro=1 AND in_vivo=1 THEN 1 ELSE 0 END) as both,
+                      SUM(CASE WHEN functional_study=1 AND COALESCE(in_vitro,0)=0 AND COALESCE(in_vivo,0)=0 THEN 1 ELSE 0 END) as unspecified,
+                      SUM(CASE WHEN functional_study=1 AND knockout=1 THEN 1 ELSE 0 END) as knockout,
+                      SUM(CASE WHEN functional_study=1 AND knockdown=1 THEN 1 ELSE 0 END) as knockdown,
+                      SUM(CASE WHEN functional_study=1 AND shrna=1 THEN 1 ELSE 0 END) as shrna,
+                      SUM(CASE WHEN functional_study=1 AND sirna=1 THEN 1 ELSE 0 END) as sirna,
+                      SUM(CASE WHEN functional_study=1 AND crispr=1 THEN 1 ELSE 0 END) as crispr,
+                      SUM(CASE WHEN functional_study=1 AND crispr_screen=1 THEN 1 ELSE 0 END) as crispr_screen
                FROM papers
                WHERE gene=? AND confidence>=?
                GROUP BY COALESCE(cancer_type, 'unknown')""",
             (g, min_conf)
         ).fetchall()
+        def empty_cancer_detail():
+            return {
+                "total": 0,
+                "functional": 0,
+                "nonfunctional": 0,
+                "functional_pct": 0.0,
+                "in_vitro_only": 0,
+                "in_vivo_only": 0,
+                "both": 0,
+                "unspecified": 0,
+                "methods": {
+                    "knockout": 0,
+                    "knockdown": 0,
+                    "shrna": 0,
+                    "sirna": 0,
+                    "crispr": 0,
+                    "crispr_screen": 0,
+                },
+            }
         cancer_breakdown = {
-            "pancreatic": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
-            "gi": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
-            "cancer": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
-            "unknown": {"total": 0, "functional": 0, "nonfunctional": 0, "functional_pct": 0.0},
+            "pancreatic": empty_cancer_detail(),
+            "gi": empty_cancer_detail(),
+            "cancer": empty_cancer_detail(),
+            "unknown": empty_cancer_detail(),
         }
         for row in cancer_detail_rows:
             key = row["cancer_type"] or "unknown"
@@ -385,6 +420,18 @@ def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
                 "functional": functional_for_type,
                 "nonfunctional": max(total_for_type - functional_for_type, 0),
                 "functional_pct": round(functional_for_type / total_for_type, 3) if total_for_type else 0.0,
+                "in_vitro_only": int(row["in_vitro_only"] or 0),
+                "in_vivo_only": int(row["in_vivo_only"] or 0),
+                "both": int(row["both"] or 0),
+                "unspecified": int(row["unspecified"] or 0),
+                "methods": {
+                    "knockout": int(row["knockout"] or 0),
+                    "knockdown": int(row["knockdown"] or 0),
+                    "shrna": int(row["shrna"] or 0),
+                    "sirna": int(row["sirna"] or 0),
+                    "crispr": int(row["crispr"] or 0),
+                    "crispr_screen": int(row["crispr_screen"] or 0),
+                },
             }
         loc = conn.execute(
             """SELECT
@@ -492,6 +539,12 @@ def export_to_df(
         where.append("functional_study = 1")
     elif functional == "false":
         where.append("functional_study = 0")
+    elif functional == "in_vitro":
+        where.append("functional_study = 1 AND in_vitro = 1 AND in_vivo = 0")
+    elif functional == "in_vivo":
+        where.append("functional_study = 1 AND in_vitro = 0 AND in_vivo = 1")
+    elif functional == "both":
+        where.append("functional_study = 1 AND in_vitro = 1 AND in_vivo = 1")
     if review_status != "all":
         where.append("COALESCE(review_status, 'unreviewed') = ?"); params.append(review_status)
     if min_conf > 0:
@@ -603,6 +656,17 @@ def export_gene_summary_to_df(
             row[f"{export_key}_total_papers"] = int(detail.get("total", 0))
             row[f"{export_key}_functional_papers"] = int(detail.get("functional", 0))
             row[f"{export_key}_functional_pct"] = round(float(detail.get("functional_pct", 0.0)), 3)
+            row[f"{export_key}_in_vitro_only"] = int(detail.get("in_vitro_only", 0))
+            row[f"{export_key}_in_vivo_only"] = int(detail.get("in_vivo_only", 0))
+            row[f"{export_key}_both_in_vitro_and_in_vivo"] = int(detail.get("both", 0))
+            row[f"{export_key}_unspecified_evidence"] = int(detail.get("unspecified", 0))
+            detail_methods = detail.get("methods", {})
+            row[f"{export_key}_knockout"] = int(detail_methods.get("knockout", 0))
+            row[f"{export_key}_knockdown"] = int(detail_methods.get("knockdown", 0))
+            row[f"{export_key}_shrna"] = int(detail_methods.get("shrna", 0))
+            row[f"{export_key}_sirna"] = int(detail_methods.get("sirna", 0))
+            row[f"{export_key}_crispr"] = int(detail_methods.get("crispr", 0))
+            row[f"{export_key}_crispr_screen"] = int(detail_methods.get("crispr_screen", 0))
         summary_rows.append(row)
 
     return pd.DataFrame(summary_rows)

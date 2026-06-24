@@ -102,16 +102,20 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .bchip{display:inline-flex;gap:5px;align-items:center;border-radius:5px;padding:3px 7px;font-size:11px;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
 .bchip i{width:7px;height:7px;border-radius:2px;display:inline-block;}
 .bchip strong{font-family:var(--mono);color:var(--text);font-weight:600;}
-.cancer-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px;}
-.cancer-detail{border:1px solid var(--border);border-radius:7px;background:#fafbfc;padding:7px 8px;min-width:0;}
-.cancer-detail-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);}
-.cancer-detail-name{display:flex;align-items:center;gap:5px;min-width:0;}
-.cancer-detail-name i{width:7px;height:7px;border-radius:2px;display:inline-block;flex:0 0 auto;}
-.cancer-detail-name span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.cancer-detail strong{display:block;margin-top:2px;font-family:var(--mono);font-size:15px;color:var(--text);}
-.cancer-detail small{display:block;margin-top:1px;font-size:10px;color:var(--faint);}
-.mini-meter{height:4px;background:var(--bg);border-radius:999px;overflow:hidden;margin-top:6px;}
-.mini-meter-fill{height:100%;border-radius:999px;background:var(--accent);}
+.cancer-matrix{display:flex;flex-direction:column;gap:7px;margin-top:8px;}
+.cancer-row{border:1px solid var(--border);border-radius:8px;background:#fafbfc;padding:9px 10px;}
+.cancer-row-head{display:grid;grid-template-columns:minmax(92px,1fr) auto;gap:10px;align-items:start;margin-bottom:7px;}
+.cancer-name{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--text);min-width:0;}
+.cancer-dot{width:8px;height:8px;border-radius:2px;display:inline-block;flex:0 0 auto;}
+.cancer-name span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cancer-total{text-align:right;font-size:11px;color:var(--muted);}
+.cancer-total strong{display:block;font-family:var(--mono);font-size:15px;line-height:1.1;color:var(--text);}
+.evidence-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;}
+.evmini{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:5px 6px;min-width:0;}
+.evmini span{display:block;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.evmini strong{font-family:var(--mono);font-size:14px;color:var(--text);}
+.row-methods{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;}
+.row-methods .tag{font-size:10px;padding:1px 6px;}
 .support-mix{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px;}
 .support-pill{border-radius:6px;padding:6px 7px;font-size:11px;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
 .support-pill strong{display:block;font-family:var(--mono);font-size:14px;color:var(--text);}
@@ -235,7 +239,11 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
         <div>
           <label class="flabel">Study type</label>
           <select id="f-func">
-            <option value="all">All papers</option><option value="true">Functional only</option>
+            <option value="all">All papers</option>
+            <option value="true">Any functional evidence</option>
+            <option value="both">Both in vitro + in vivo</option>
+            <option value="in_vitro">In vitro only</option>
+            <option value="in_vivo">In vivo only</option>
             <option value="false">Non-functional only</option>
           </select>
         </div>
@@ -510,17 +518,26 @@ function breakdownChips(items) {
   ).join('')}</div>`;
 }
 
-function cancerDetailCards(items) {
-  return `<div class="cancer-detail-grid">${items.map(x => {
+function cancerEvidenceMatrix(items) {
+  return `<div class="cancer-matrix">${items.map(x => {
     const pct = x.total ? Math.round(100 * x.functional / x.total) : 0;
-    return `<div class="cancer-detail">
-      <div class="cancer-detail-top">
-        <div class="cancer-detail-name"><i class="${x.cls}"></i><span>${esc(x.label)}</span></div>
-        <span>${pct}%</span>
+    const methods = (x.methods || []);
+    const methodTags = methods.slice(0, 3).map(([label, count, cls]) =>
+      `<span class="tag ${cls}">${label}: ${count}</span>`
+    ).join('');
+    const methodMore = methods.length > 3 ? `<span class="tag">${methods.length - 3} more</span>` : '';
+    return `<div class="cancer-row">
+      <div class="cancer-row-head">
+        <div class="cancer-name"><i class="cancer-dot ${x.cls}"></i><span>${esc(x.label)}</span></div>
+        <div class="cancer-total"><strong>${x.functional}/${x.total}</strong>${pct}% functional</div>
       </div>
-      <strong>${x.functional}/${x.total}</strong>
-      <small>functional / total papers</small>
-      <div class="mini-meter"><div class="mini-meter-fill ${x.cls}" style="width:${Math.max(2, pct)}%;"></div></div>
+      <div class="evidence-counts">
+        <div class="evmini"><span>Both</span><strong>${x.both || 0}</strong></div>
+        <div class="evmini"><span>In vitro</span><strong>${x.in_vitro_only || 0}</strong></div>
+        <div class="evmini"><span>In vivo</span><strong>${x.in_vivo_only || 0}</strong></div>
+        <div class="evmini"><span>Unspec.</span><strong>${x.unspecified || 0}</strong></div>
+      </div>
+      ${methodTags ? `<div class="row-methods">${methodTags}${methodMore}</div>` : ''}
     </div>`;
   }).join('')}</div>`;
 }
@@ -550,7 +567,27 @@ function renderCards(genes, summaries) {
       const d = cb[key] || {};
       const total = Number(d.total ?? fallback ?? 0) || 0;
       const functional = Number(d.functional ?? fallback ?? 0) || 0;
-      return {label, total, functional, count: functional, cls};
+      const dm = d.methods || {};
+      const methods = [
+        ['KO', dm.knockout || 0, 't-ko'],
+        ['KD', dm.knockdown || 0, 't-kd'],
+        ['shRNA', dm.shrna || 0, 't-shrna'],
+        ['siRNA', dm.sirna || 0, 't-sirna'],
+        ['CRISPR', dm.crispr || 0, 't-crispr'],
+        ['Screen', dm.crispr_screen || 0, 't-crispr']
+      ].filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
+      return {
+        label,
+        total,
+        functional,
+        count: functional,
+        cls,
+        in_vitro_only: Number(d.in_vitro_only || 0),
+        in_vivo_only: Number(d.in_vivo_only || 0),
+        both: Number(d.both || 0),
+        unspecified: Number(d.unspecified || 0),
+        methods
+      };
     };
     const cancerItems = [
       cancerDetail('pancreatic', 'Pancreatic', s.pancreatic || 0, 'c-panc'),
@@ -564,8 +601,6 @@ function renderCards(genes, summaries) {
       {label: 'In vivo', count: s.in_vivo_only || 0, cls: 'e-vivo'},
       {label: 'Unspecified', count: evidenceUnknown, cls: 'e-unknown'}
     ];
-    const mainCancer = topBreakdown(cancerItems);
-    const mainEvidence = topBreakdown(evidenceItems);
     const support = supportBand(s.support_avg || 0);
     const supportScore = s.support_avg ? Number(s.support_avg || 0).toFixed(2) : 'not scored';
     const methodRows = [
@@ -592,22 +627,14 @@ function renderCards(genes, summaries) {
           <span class="support-badge ${support.cls}" title="Heuristic evidence-support score from rule, LLM, and extracted evidence signals; not a calibrated probability.">${support.label}</span>
         </div>
       </div>
-      <div class="sharebar" title="${pct}% of retrieved papers are classified as functional evidence."><div class="sharefill" style="width:${Math.max(2, pct)}%;"></div></div>
 
-      <div class="signal-grid">
-        <div class="signal"><span>Main cancer type</span><strong>${esc(mainCancer.label)} (${mainCancer.count})</strong></div>
-        <div class="signal"><span>Main evidence type</span><strong>${esc(mainEvidence.label)} (${mainEvidence.count})</strong></div>
+      <div class="gcsection">
+        <div class="gclabel">Cancer-specific functional evidence</div>
+        ${cancerEvidenceMatrix(cancerItems)}
       </div>
 
       <div class="gcsection">
-        <div class="gclabel">Cancer type</div>
-        ${segmentedBar(cancerItems, s.functional || 0)}
-        ${cancerDetailCards(cancerItems)}
-      </div>
-
-      <div class="gcsection">
-        <div class="gclabel">Functional evidence</div>
-        ${segmentedBar(evidenceItems, s.functional || 0)}
+        <div class="gclabel">Overall evidence type</div>
         ${breakdownChips(evidenceItems)}
       </div>
 
