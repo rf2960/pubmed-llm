@@ -23,13 +23,16 @@ pipeline.analyze_gene(gene, max_papers=...)
 
 For each gene, the pipeline:
 
-1. builds a PubMed query around the gene and cancer/function terms
-2. retrieves PMID ids
-3. fetches PubMed metadata and abstracts
-4. attempts to fetch PMC full text when available
-5. caches paper-level results in the configured cache directory
+1. builds a focused PubMed query around the gene, cancer terms, and functional evidence terms
+2. retrieves a broad fallback PMID set to preserve recall
+3. ranks candidate PMIDs by gene/cancer/perturbation/phenotype/model signals
+4. fetches PubMed metadata and abstracts
+5. attempts to fetch PMC full text when available
+6. caches paper-level results in the configured cache directory
 
 The worker should set `ENTREZ_EMAIL` so NCBI requests include a real contact email.
+
+Detailed algorithm notes: [Pipeline algorithm](pipeline_algorithm.md).
 
 ## Evidence Extraction
 
@@ -43,6 +46,9 @@ The rules look for:
 - weak-evidence patterns such as review-only or association-only language
 
 The goal is to extract evidence-bearing passages, not to summarize the whole article.
+The extractor now uses a lightweight sentence-ranking layer so nearby
+gene-centered perturbation/phenotype context can be retained even when a strict
+single-sentence rule does not trigger.
 
 ## LLM Classification
 
@@ -67,6 +73,7 @@ role-specific workflow agents implemented in `evidence_agents.py`:
 | Evidence Finder Agent | Summarizes extracted perturbation, in vitro, in vivo, and CRISPR-screen evidence coverage. |
 | Classifier Consensus Agent | Records whether rules and BioMistral agree and which label became primary. |
 | Skeptical Verifier Agent | Checks whether extracted snippets really support the decision using `evidence_verifier.py`. |
+| Adjudicator Agent | Challenges internally inconsistent rows, such as high scores without verifier support. |
 | Human Review Router Agent | Recommends routine, medium-priority, or high-priority human review. |
 
 These agents are deterministic wrappers around the current evidence and labels.
@@ -90,6 +97,7 @@ pipeline and the score-recompute script. It scores:
 - rule/LLM agreement or disagreement
 - gene mention specificity inside extracted evidence sentences
 - evidence context, including whether PMC/full-text evidence was available
+- PubMed candidate-search relevance and evidence-retrieval strength
 - skeptical verifier score and review-routing status
 - penalties for expression-only, correlation-only, review-only, or missing
   evidence patterns
@@ -115,6 +123,11 @@ rerunning PubMed retrieval or BioMistral:
 ```bash
 python -u scripts/recompute_confidence.py --db-path gene_function_lab/gene_function_lab.db --upload
 ```
+
+To fully rebuild old rows with the current search/evidence/classifier logic,
+use [Reprocess workflow](reprocess_workflow.md).
+
+Full scoring details: [Confidence metric](confidence_metric.md).
 
 ## Database Writes
 
@@ -144,3 +157,5 @@ Keep future work evidence-grounded:
 - calibrate thresholds from human review labels
 - separate retrieval, evidence extraction, classification, and scoring into smaller modules
 - add tests for DB migrations and confidence scoring
+
+Gold-label workflow: [Human review dataset](human_review_dataset.md).

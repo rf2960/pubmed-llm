@@ -1,0 +1,4 @@
+# Optional curated aliases used by PubMed search.
+# Format: gene<TAB>alias1|alias2|alias3
+# Keep this conservative. Broad aliases can reduce search precision,
+# especially for short symbols such as CP, GC, APP, MET, and KIT.

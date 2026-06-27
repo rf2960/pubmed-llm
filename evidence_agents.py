@@ -141,19 +141,74 @@ def run_pre_scoring_agents(
     }
 
 
-def review_router_agent(
+def adjudicator_agent(
     confidence: float,
     primary: dict,
     verification: dict,
     llm_rules_disagree: bool,
 ) -> dict:
+    """Second-stage deterministic adjudicator for risky classifications.
+
+    This agent does not add a new LLM call. It challenges internally
+    inconsistent rows so the score and review queue do not overstate certainty.
+    """
+    primary = primary or {}
+    verification = verification or {}
+    functional = _as_bool(primary.get("functional_study"))
+    status = str(verification.get("verification_status") or "")
+    score = float(confidence or 0)
+    findings: list[str] = []
+
+    if functional and status in {"not_supported", "weak_support", "needs_review"}:
+        findings.append("functional label lacks strong verifier support")
+    if score >= 0.82 and status != "supported":
+        findings.append("high score without supported verifier status")
+    if llm_rules_disagree:
+        findings.append("rules and BioMistral disagree")
+    if not functional and status == "supported":
+        findings.append("possible false negative: verifier found support but label is non-functional")
+
+    if findings:
+        adjudication = "challenge"
+    else:
+        adjudication = "accept"
+        findings.append("classification and verifier are internally consistent")
+
+    return {
+        "adjudication": adjudication,
+        "adjudication_reasons": "; ".join(dict.fromkeys(findings)),
+        "agent": {
+            "agent": "Adjudicator Agent",
+            "status": adjudication,
+            "findings": findings,
+            "metrics": {
+                "confidence": round(score, 3),
+                "verification_status": status,
+                "functional_label": functional,
+                "llm_rules_disagree": bool(llm_rules_disagree),
+            },
+        },
+    }
+
+
+def review_router_agent(
+    confidence: float,
+    primary: dict,
+    verification: dict,
+    llm_rules_disagree: bool,
+    adjudication: dict | None = None,
+) -> dict:
     """Route the paper to routine review or elevated human review."""
     primary = primary or {}
     verification = verification or {}
+    adjudication = adjudication or {}
     status = str(verification.get("verification_status") or "")
     reasons: list[str] = []
 
-    if status in {"not_supported", "weak_support"}:
+    if adjudication.get("adjudication") == "challenge":
+        recommendation = "high_priority_review"
+        reasons.append(adjudication.get("adjudication_reasons") or "adjudicator challenged classification")
+    elif status in {"not_supported", "weak_support"}:
         recommendation = "high_priority_review"
         reasons.append(f"verifier marked {status.replace('_', ' ')}")
     elif llm_rules_disagree:

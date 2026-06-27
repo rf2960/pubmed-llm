@@ -32,7 +32,7 @@ def main() -> int:
     db = configure_db_runtime(args)
 
     from confidence import compute_confidence_from_db_row
-    from evidence_agents import review_router_agent, run_pre_scoring_agents, serialize_agent_trace
+    from evidence_agents import adjudicator_agent, review_router_agent, run_pre_scoring_agents, serialize_agent_trace
 
     logging.info("Log file: %s", log_file)
     logging.info("DB path: %s", args.db_path)
@@ -56,7 +56,8 @@ def main() -> int:
                evidence_perturbation, evidence_in_vitro, evidence_in_vivo,
                evidence_crispr_screen, total_evidence_sents,
                verification_status, verification_reasons,
-               evidence_quality_score, gene_match_quality,
+               evidence_quality_score, search_relevance_score,
+               evidence_retrieval_score, gene_match_quality,
                review_recommendation, review_reasons, agent_trace
         FROM papers
         {clause}
@@ -96,6 +97,8 @@ def main() -> int:
             "evidence_crispr_screen": row.get("evidence_crispr_screen"),
             "total_evidence_sents": row.get("total_evidence_sents"),
             "pmcid": row.get("pmcid"),
+            "search_relevance_score": row.get("search_relevance_score"),
+            "evidence_retrieval_score": row.get("evidence_retrieval_score"),
         }
         agent_result = run_pre_scoring_agents(
             row.get("gene", ""),
@@ -109,13 +112,21 @@ def main() -> int:
         verification = agent_result["verification"]
         row.update(verification)
         confidence, conf_func, conf_nonfunc = compute_confidence_from_db_row(row)
-        route = review_router_agent(
+        adjudication = adjudicator_agent(
             confidence,
             primary,
             verification,
             bool(row.get("llm_rules_disagree")),
         )
+        route = review_router_agent(
+            confidence,
+            primary,
+            verification,
+            bool(row.get("llm_rules_disagree")),
+            adjudication,
+        )
         trace = agent_result["trace"]
+        trace["agents"].append(adjudication["agent"])
         trace["agents"].append(route["agent"])
         old = float(row.get("confidence") or 0)
         updates.append((

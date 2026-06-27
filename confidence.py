@@ -223,6 +223,16 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
     except (TypeError, ValueError):
         verifier_score = 0.0
     verifier_score = max(0.0, min(1.0, verifier_score))
+    try:
+        search_relevance_score = float(ev.get("search_relevance_score") or 0.0)
+    except (TypeError, ValueError):
+        search_relevance_score = 0.0
+    search_relevance_score = max(0.0, min(1.0, search_relevance_score))
+    try:
+        evidence_retrieval_score = float(ev.get("evidence_retrieval_score") or 0.0)
+    except (TypeError, ValueError):
+        evidence_retrieval_score = 0.0
+    evidence_retrieval_score = max(0.0, min(1.0, evidence_retrieval_score))
 
     return {
         "perturbation_score": perturbation_score,
@@ -235,6 +245,8 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
         "gene_specificity": gene_specificity,
         "context_strength": context_strength,
         "verifier_score": verifier_score,
+        "search_relevance_score": search_relevance_score,
+        "evidence_retrieval_score": evidence_retrieval_score,
         "verification_status": verification_status,
         "gene_match_quality": gene_match_quality,
         "negative_text_score": min(
@@ -267,15 +279,17 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
 
     conf_functional = (
         0.04
-        + 0.27 * components["perturbation_score"]
-        + 0.22 * components["phenotype_score"]
-        + 0.14 * components["evidence_depth_score"]
-        + 0.12 * components["agreement_functional"]
+        + 0.25 * components["perturbation_score"]
+        + 0.20 * components["phenotype_score"]
+        + 0.12 * components["evidence_depth_score"]
+        + 0.10 * components["agreement_functional"]
         + 0.07 * components["method_strength"]
-        + 0.07 * components["source_reliability"]
+        + 0.05 * components["source_reliability"]
         + 0.06 * components["gene_specificity"]
         + 0.04 * components["context_strength"]
         + 0.08 * components["verifier_score"]
+        + 0.06 * components["search_relevance_score"]
+        + 0.05 * components["evidence_retrieval_score"]
     )
 
     if components["expression_only"]:
@@ -317,6 +331,8 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         + 0.04 * (1.0 - components["evidence_depth_score"])
         + 0.02 * (1.0 - components["context_strength"])
         + 0.04 * (1.0 - components["verifier_score"])
+        + 0.03 * (1.0 - components["search_relevance_score"])
+        + 0.03 * (1.0 - components["evidence_retrieval_score"])
     )
     if components["perturbation_score"] >= 0.70 and components["phenotype_score"] > 0:
         conf_not_functional -= 0.25
@@ -333,6 +349,8 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "source_reliability_score": round(components["source_reliability"], 2),
         "context_strength_score": round(components["context_strength"], 2),
         "evidence_verifier_score": round(components["verifier_score"], 2),
+        "search_relevance_score": round(components["search_relevance_score"], 2),
+        "evidence_retrieval_score": round(components["evidence_retrieval_score"], 2),
         "strong_method_score": round(components["method_strength"], 2),
         "in_vitro_phenotype": components["in_vitro"],
         "in_vivo_phenotype": components["in_vivo"],
@@ -386,6 +404,8 @@ def compute_confidence_from_db_row(row: dict) -> tuple[float, float, float]:
         "pmcid": row.get("pmcid"),
         "verification_status": row.get("verification_status"),
         "evidence_quality_score": row.get("evidence_quality_score"),
+        "search_relevance_score": row.get("search_relevance_score"),
+        "evidence_retrieval_score": row.get("evidence_retrieval_score"),
         "gene_match_quality": row.get("gene_match_quality"),
     }
     conf_func, conf_nonfunc, _, _ = compute_confidence(
@@ -425,6 +445,8 @@ def explain_confidence_from_db_row(row: dict) -> dict:
         "pmcid": row.get("pmcid"),
         "verification_status": row.get("verification_status"),
         "evidence_quality_score": row.get("evidence_quality_score"),
+        "search_relevance_score": row.get("search_relevance_score"),
+        "evidence_retrieval_score": row.get("evidence_retrieval_score"),
         "gene_match_quality": row.get("gene_match_quality"),
     }
     c = _support_components(row.get("gene", ""), llm_result, rules_result, ev, row.get("title", ""), "")
@@ -480,6 +502,8 @@ def explain_confidence_from_db_row(row: dict) -> dict:
             "method_strength": round(c["method_strength"], 2),
             "context": round(c["context_strength"], 2),
             "verifier": round(c["verifier_score"], 2),
+            "search_relevance": round(c["search_relevance_score"], 2),
+            "evidence_retrieval": round(c["evidence_retrieval_score"], 2),
         },
         "reasons": reasons,
     }

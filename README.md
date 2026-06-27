@@ -16,9 +16,10 @@ flowchart LR
     B --> C["SQLite request_queue"]
     C --> D["Colab or GPU worker scripts"]
     D --> E["PubMed and PMC retrieval"]
-    E --> F["Rule-based evidence detection"]
-    F --> G["BioMistral-7B classifier"]
-    G --> H["Evidence agents: finder, consensus, verifier, review router"]
+    E --> F["Candidate ranking and evidence retrieval"]
+    F --> L["Rule-based evidence detection"]
+    L --> G["BioMistral-7B classifier"]
+    G --> H["Evidence agents: finder, consensus, verifier, adjudicator, review router"]
     H --> I["SQLite papers and genes tables"]
     I --> J["Google Drive DB file"]
     J --> B
@@ -37,6 +38,7 @@ The current version combines rule-based evidence detection with an LLM classifie
 - in vitro / in vivo evidence signals
 - perturbation signals such as knockout, knockdown, siRNA, shRNA, CRISPR, and CRISPR screen
 - extracted evidence snippets
+- search-relevance and evidence-retrieval diagnostics
 - LLM/rule disagreement diagnostics
 - evidence-agent verification status, review recommendation, and agent trace
 - an evidence-support confidence score
@@ -84,11 +86,12 @@ flowchart TD
     B --> D["scripts/process_queue.py"]
     D --> E["pipeline.analyze_gene"]
     E --> F["PubMed search IDs"]
-    F --> G["Fetch metadata and PMC text"]
-    G --> H["Extract evidence sentences"]
-    H --> I["Rules plus BioMistral classifier"]
-    I --> J["Evidence agent workflow"]
-    J --> K["db.upsert_papers_bulk"]
+    F --> G["Rank candidates by evidence relevance"]
+    G --> H["Fetch metadata and PMC text"]
+    H --> I["Extract evidence-centered snippets"]
+    I --> J["Rules plus BioMistral classifier"]
+    J --> O["Evidence agent workflow"]
+    O --> K["db.upsert_papers_bulk"]
     K --> L["Update genes summary"]
     L --> M["Mark queue done or error"]
     M --> N["Drive upload or website sync"]
@@ -107,12 +110,14 @@ processes pending queue requests first, then refreshes existing genes whose
 | `db.py` | SQLite schema, migrations, queries, queue helpers, review helpers, export helpers. |
 | `drive_sync.py` | Google Drive download/upload logic for the website DB. |
 | `confidence.py` | Shared evidence-support scoring rubric used by both new processing and score recomputation. |
-| `evidence_agents.py` | Role-specific evidence agents: evidence finder, classifier consensus, skeptical verifier, and review router. |
+| `evidence_agents.py` | Role-specific evidence agents: evidence finder, classifier consensus, skeptical verifier, adjudicator, and review router. |
 | `evidence_verifier.py` | Deterministic verifier used by the agent workflow and confidence scoring. |
 | `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |
 | `scripts/check_queue_status.py` | Prints DB and queue counts. |
 | `scripts/process_queue.py` | Main maintenance worker for pending requests, failed requests, and stale existing-gene refresh. |
 | `scripts/recompute_confidence.py` | Recomputes existing paper evidence-support scores after scoring logic changes, without rerunning PubMed or BioMistral. |
+| `scripts/reprocess_papers.py` | Force-reprocesses a gene or selected PMIDs with the current search/evidence/classifier pipeline. |
+| `scripts/evaluate_gold_labels.py` | Evaluates DB labels against a small human-labeled CSV benchmark. |
 | `scripts/update_existing_genes.py` | Advanced fallback for manual existing-gene refresh chunks. |
 | `scripts/check_gene_refresh.py` | Advanced fallback verification for manual refresh chunks. |
 | `scripts/common.py` | Shared script configuration, logging, DB path, cache path, and upload helpers. |
@@ -266,6 +271,11 @@ Full guides:
 
 - [System overview](docs/system-overview.md)
 - [Pipeline details](docs/pipeline.md)
+- [Pipeline algorithm](docs/pipeline_algorithm.md)
+- [Confidence metric](docs/confidence_metric.md)
+- [Accuracy improvements](docs/accuracy_improvements.md)
+- [Human review dataset](docs/human_review_dataset.md)
+- [Reprocess workflow](docs/reprocess_workflow.md)
 - [Maintenance guide](docs/maintenance.md)
 - [Monthly refresh guide](docs/monthly-refresh.md)
 - [Deployment guide](docs/deployment.md)
@@ -292,7 +302,8 @@ Full guides:
   includes a deterministic skeptical verifier that checks whether the extracted
   snippets support direct gene perturbation, phenotype evidence, gene-specific
   matching, and rule/LLM agreement.
-- The system is not guaranteed to retrieve every relevant paper.
+- The system is not guaranteed to retrieve every relevant paper, although the
+  search now prioritizes evidence-focused candidates before the broad fallback.
 - Human review labels are stored in SQLite and require careful DB sync/backup discipline.
 - The pipeline has not yet been evaluated against a formal gold-label benchmark.
 

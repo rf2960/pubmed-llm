@@ -16,7 +16,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 from confidence import compute_confidence
-from evidence_agents import review_router_agent, run_pre_scoring_agents, serialize_agent_trace
+from evidence_agents import adjudicator_agent, review_router_agent, run_pre_scoring_agents, serialize_agent_trace
 from evidence_verifier import is_ambiguous_gene_symbol
 
 # Entrez
@@ -72,6 +72,33 @@ SPECIFIC_NON_GI_TERMS = (
 )
 
 GENERIC_CANCER_TERMS = ["cancer", "tumor", "tumour", "carcinoma", "neoplasm", "oncogene"]
+
+PERTURBATION_SEARCH_TERMS = [
+    "knockdown", "knockout", "CRISPR", "Cas9", "siRNA", "shRNA", "RNAi",
+    "silencing", "deletion", "loss of function", "gene editing",
+]
+
+PHENOTYPE_SEARCH_TERMS = [
+    "proliferation", "viability", "apoptosis", "migration", "invasion",
+    "tumor growth", "tumour growth", "tumor volume", "tumour volume",
+    "survival", "metastasis", "colony formation",
+]
+
+MODEL_SEARCH_TERMS = [
+    "cell line", "cell culture", "xenograft", "mouse", "murine", "organoid",
+    "in vivo", "in vitro",
+]
+
+REVIEW_EXCLUDE_QUERY = (
+    "review[Publication Type] OR meta-analysis[Publication Type] OR "
+    "editorial[Publication Type] OR comment[Publication Type]"
+)
+
+GENE_ALIAS_PATH = os.environ.get(
+    "GENE_ALIAS_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gene_aliases.tsv"),
+)
+_GENE_ALIAS_CACHE: dict[str, list[str]] | None = None
 
 # Export columns for user-facing CSV
 EXPORT_COLS = [
@@ -140,7 +167,78 @@ def entrez_call(fn, *args, max_tries=5, base_sleep=0.4, **kwargs):
 STRICT_GENE_QUERY = os.environ.get("PUBMED_STRICT_GENE_QUERY", "1").strip() != "0"
 
 
-def _build_pubmed_query(gene: str, extra_terms: list[str], allow_all_fields: bool = False) -> str:
+def _unique_terms(terms: list[str]) -> list[str]:
+    seen = set()
+    out = []
+    for term in terms:
+        cleaned = str(term or "").strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            seen.add(key)
+            out.append(cleaned)
+    return out
+
+
+def _quote_pubmed_term(term: str, field: str = "Title/Abstract") -> str:
+    escaped = str(term).replace('"', '\\"')
+    return f'"{escaped}"[{field}]'
+
+
+def _load_gene_aliases() -> dict[str, list[str]]:
+    """Load optional curated gene aliases from data/gene_aliases.tsv.
+
+    The file is deliberately optional. If it is absent, search uses only the
+    submitted gene symbol. A curated TSV avoids broad synonym expansion that can
+    make short gene symbols less precise.
+    """
+    global _GENE_ALIAS_CACHE
+    if _GENE_ALIAS_CACHE is not None:
+        return _GENE_ALIAS_CACHE
+    aliases: dict[str, list[str]] = {}
+    if os.path.exists(GENE_ALIAS_PATH):
+        try:
+            with open(GENE_ALIAS_PATH, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) < 2:
+                        continue
+                    gene = parts[0].strip().upper()
+                    vals = []
+                    for cell in parts[1:]:
+                        vals.extend(x.strip() for x in re.split(r"[|,;]", cell) if x.strip())
+                    aliases[gene] = _unique_terms(vals)
+        except Exception as exc:
+            print(f"  [Aliases] Could not load {GENE_ALIAS_PATH}: {exc}")
+    _GENE_ALIAS_CACHE = aliases
+    return aliases
+
+
+def gene_search_terms(gene: str) -> list[str]:
+    """Return conservative query terms for a gene symbol plus curated aliases."""
+    gene = str(gene or "").strip().upper()
+    aliases = _load_gene_aliases().get(gene, [])
+    terms = [gene] + aliases
+    # Avoid accidentally expanding short ambiguous symbols into broad English
+    # words unless the alias file explicitly uses a multi-character synonym.
+    if is_ambiguous_gene_symbol(gene):
+        terms = [t for t in terms if t.upper() == gene or len(t) >= 4]
+    return _unique_terms(terms)
+
+
+def _or_title_abstract(terms: list[str]) -> str:
+    return " OR ".join(_quote_pubmed_term(t) for t in _unique_terms(terms))
+
+
+def _build_pubmed_query(
+    gene: str,
+    extra_terms: list[str],
+    allow_all_fields: bool = False,
+    require_functional_context: bool = False,
+    exclude_reviews: bool = False,
+) -> str:
     """Build a precision-oriented PubMed query for a gene and cancer terms.
 
     Older versions searched the gene in ``All Fields`` by default. That improves
@@ -149,44 +247,99 @@ def _build_pubmed_query(gene: str, extra_terms: list[str], allow_all_fields: boo
     PUBMED_STRICT_GENE_QUERY=0 to allow the broader fallback for non-ambiguous
     genes.
     """
-    gene_ta = f'"{gene}"[Title/Abstract]'
+    terms = gene_search_terms(gene)
+    gene_ta = _or_title_abstract(terms)
     if allow_all_fields and not is_ambiguous_gene_symbol(gene):
-        gene_q = f"({gene_ta} OR \"{gene}\"[All Fields])"
+        gene_q = f"({gene_ta} OR {_quote_pubmed_term(gene, 'All Fields')})"
     else:
-        gene_q = gene_ta
-    kw_q   = " OR ".join(f'"{k}"[Title/Abstract]' for k in extra_terms)
-    return f"({gene_q} AND ({kw_q}))"
+        gene_q = f"({gene_ta})"
+    kw_q = _or_title_abstract(extra_terms)
+    clauses = [gene_q, f"({kw_q})"]
+    if require_functional_context:
+        functional_q = _or_title_abstract(
+            PERTURBATION_SEARCH_TERMS + PHENOTYPE_SEARCH_TERMS + MODEL_SEARCH_TERMS
+        )
+        clauses.append(f"({functional_q})")
+    query = " AND ".join(clauses)
+    if exclude_reviews:
+        query = f"({query}) NOT ({REVIEW_EXCLUDE_QUERY})"
+    return f"({query})"
 
 
-def pubmed_search_ids(gene: str, extra_terms: list[str], batch_size=2000) -> list[str]:
-    allow_all_fields = not STRICT_GENE_QUERY and not is_ambiguous_gene_symbol(gene)
-    term = _build_pubmed_query(gene, extra_terms, allow_all_fields=allow_all_fields)
-
+def _pubmed_count(term: str) -> int:
     with entrez_call(Entrez.esearch, db="pubmed", term=term, retmax=0, retmode="xml") as h:
-        total = int(Entrez.read(h)["Count"])
+        return int(Entrez.read(h)["Count"])
 
-    if total == 0 and STRICT_GENE_QUERY and not is_ambiguous_gene_symbol(gene):
-        broad_term = _build_pubmed_query(gene, extra_terms, allow_all_fields=True)
-        with entrez_call(Entrez.esearch, db="pubmed", term=broad_term, retmax=0, retmode="xml") as h:
-            broad_total = int(Entrez.read(h)["Count"])
-        if broad_total:
-            term = broad_term
-            total = broad_total
-            print(f"  [PubMed] {gene}: strict query had 0 hits; using broad fallback.")
 
-    query_mode = "title/abstract + all fields" if '"[All Fields]' in term else "title/abstract"
-    print(f"  [PubMed] {gene}: {total} hits ({query_mode})")
-
+def _pubmed_fetch_ids(term: str, total: int, batch_size: int = 2000, sort: str = "relevance") -> list[str]:
     pmids = []
     fetch_limit = min(total, PUBMED_MAX_RETSTART + 1)
     if total > fetch_limit:
         print(f"  [PubMed] Limiting ID fetch to first {fetch_limit} hits due to PubMed retstart cap.")
     for start in range(0, fetch_limit, batch_size):
         retmax = min(batch_size, fetch_limit - start)
-        with entrez_call(Entrez.esearch, db="pubmed", term=term,
-                         retstart=start, retmax=retmax, retmode="xml") as h:
+        with entrez_call(
+            Entrez.esearch,
+            db="pubmed",
+            term=term,
+            retstart=start,
+            retmax=retmax,
+            retmode="xml",
+            sort=sort,
+        ) as h:
             pmids.extend(Entrez.read(h)["IdList"])
     return pmids
+
+
+def _merge_pmids(*groups: list[str]) -> list[str]:
+    seen = set()
+    merged = []
+    for group in groups:
+        for pmid in group:
+            key = str(pmid)
+            if key not in seen:
+                seen.add(key)
+                merged.append(key)
+    return merged
+
+
+def pubmed_search_ids(gene: str, extra_terms: list[str], batch_size=2000) -> list[str]:
+    allow_all_fields = not STRICT_GENE_QUERY and not is_ambiguous_gene_symbol(gene)
+    focused_term = _build_pubmed_query(
+        gene,
+        extra_terms,
+        allow_all_fields=allow_all_fields,
+        require_functional_context=True,
+        exclude_reviews=True,
+    )
+    broad_term = _build_pubmed_query(
+        gene,
+        extra_terms,
+        allow_all_fields=allow_all_fields,
+        require_functional_context=False,
+        exclude_reviews=False,
+    )
+
+    focused_total = _pubmed_count(focused_term)
+    broad_total = _pubmed_count(broad_term)
+
+    if broad_total == 0 and STRICT_GENE_QUERY and not is_ambiguous_gene_symbol(gene):
+        fallback = _build_pubmed_query(gene, extra_terms, allow_all_fields=True)
+        fallback_total = _pubmed_count(fallback)
+        if fallback_total:
+            broad_term = fallback
+            broad_total = fallback_total
+            print(f"  [PubMed] {gene}: strict query had 0 broad hits; using all-fields fallback.")
+
+    query_mode = "title/abstract + all fields" if "[All Fields]" in broad_term else "title/abstract"
+    print(
+        f"  [PubMed] {gene}: {broad_total} cancer hits; "
+        f"{focused_total} evidence-focused hits ({query_mode})"
+    )
+
+    focused_pmids = _pubmed_fetch_ids(focused_term, focused_total, batch_size=batch_size, sort="relevance")
+    broad_pmids = _pubmed_fetch_ids(broad_term, broad_total, batch_size=batch_size, sort="relevance")
+    return _merge_pmids(focused_pmids, broad_pmids)
 
 
 def pubmed_fetch_metadata(pmids: list[str]) -> dict:
@@ -286,12 +439,20 @@ def split_sentences(text: str) -> list[str]:
             if len(s.strip()) > 20]
 
 
+def _gene_mentioned(gene: str, sent: str) -> bool:
+    if not gene or not sent:
+        return False
+    for term in gene_search_terms(gene):
+        if re.search(rf"\b{re.escape(term.lower())}\b", sent.lower()):
+            return True
+    return False
+
+
 def _sentence_is_evidence(gene: str, sent: str) -> bool:
     if not sent:
         return False
-    g = gene.lower()
     s = sent.lower()
-    if not re.search(rf"\b{re.escape(g)}\b", s):
+    if not _gene_mentioned(gene, sent):
         return False
     if any(p.search(sent) for p in [PATTERNS["knockout"], PATTERNS["knockdown"],
                                      PATTERNS["crispr"], PATTERNS["crispr_screen"]]):
@@ -306,6 +467,45 @@ def _sentence_is_evidence(gene: str, sent: str) -> bool:
     return any(w in s for w in phenotype_words)
 
 
+def _sentence_evidence_score(gene: str, sent: str) -> tuple[float, dict]:
+    """Score a sentence for evidence retrieval.
+
+    This is a retrieval score, not a classification decision. It helps place
+    the most useful abstract/full-text snippets in front of the classifier and
+    verifier.
+    """
+    s = sent or ""
+    sl = s.lower()
+    details = {
+        "gene": _gene_mentioned(gene, s),
+        "perturbation": any(
+            p.search(s)
+            for p in [PATTERNS["knockout"], PATTERNS["knockdown"], PATTERNS["crispr"], PATTERNS["crispr_screen"]]
+        ),
+        "model": PATTERNS["in_vitro"].search(s) is not None or PATTERNS["in_vivo"].search(s) is not None,
+        "phenotype": any(w in sl for w in PHENOTYPE_SEARCH_TERMS),
+        "cancer": any(w in sl for w in GENERIC_CANCER_TERMS + PANCREATIC_TERMS + GI_TERMS + list(SPECIFIC_NON_GI_TERMS)),
+        "review_like": any(w in sl for w in ["review", "meta-analysis", "systematic review"]),
+        "correlation_like": any(w in sl for w in ["correlat", "prognostic", "biomarker", "signature"]),
+    }
+    score = 0.0
+    if details["gene"]:
+        score += 0.34
+    if details["perturbation"]:
+        score += 0.30
+    if details["phenotype"]:
+        score += 0.16
+    if details["model"]:
+        score += 0.12
+    if details["cancer"]:
+        score += 0.08
+    if details["review_like"]:
+        score -= 0.12
+    if details["correlation_like"] and not details["perturbation"]:
+        score -= 0.08
+    return max(0.0, min(1.0, score)), details
+
+
 def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
                            max_sents=40, neighbors=1) -> dict:
     abs_sents  = split_sentences(abstract or "")
@@ -318,8 +518,20 @@ def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
                     evidence_text="", total_evidence_sents=0)
 
     keep_idx = set()
+    scored = []
     for i, s in enumerate(all_sents):
+        score, detail = _sentence_evidence_score(gene, s)
+        scored.append((score, i, detail))
         if _sentence_is_evidence(gene, s):
+            for j in range(max(0, i - neighbors), min(len(all_sents), i + neighbors + 1)):
+                keep_idx.add(j)
+
+    # Add the strongest gene-centered evidence candidates even when the strict
+    # rule extractor did not trigger. This improves recall for abstracts that
+    # describe a perturbation and phenotype in adjacent or less formulaic text.
+    top_scored = sorted(scored, key=lambda x: x[0], reverse=True)[:12]
+    for score, i, detail in top_scored:
+        if score >= 0.42 and (detail["gene"] or detail["perturbation"]):
             for j in range(max(0, i - neighbors), min(len(all_sents), i + neighbors + 1)):
                 keep_idx.add(j)
 
@@ -347,6 +559,12 @@ def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
             ev_vivo.append(s)
         if PATTERNS["crispr_screen"].search(s):
             ev_screen.append(s)
+
+    retrieval_scores = [_sentence_evidence_score(gene, s)[0] for s in kept]
+    evidence_retrieval_score = round(
+        max(retrieval_scores) if retrieval_scores else 0.0,
+        3,
+    )
 
     def cap(lst, k): return lst[:k]
     ev_pert, ev_vitro, ev_vivo, ev_screen = (
@@ -383,6 +601,7 @@ def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
         evidence_crispr_screen=ev_screen,
         evidence_text="\n".join(parts).strip(),
         total_evidence_sents=len(kept),
+        evidence_retrieval_score=evidence_retrieval_score,
     )
 
 
@@ -642,8 +861,10 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         # additional soft ceiling so disagreement remains review-worthy without
         # flattening many rows to the same score.
         confidence = min(confidence, 0.72)
-    route = review_router_agent(confidence, primary, verification, llm_rules_disagree)
+    adjudication = adjudicator_agent(confidence, primary, verification, llm_rules_disagree)
+    route = review_router_agent(confidence, primary, verification, llm_rules_disagree, adjudication)
     agent_trace = agent_result["trace"]
+    agent_trace["agents"].append(adjudication["agent"])
     agent_trace["agents"].append(route["agent"])
 
     return {
@@ -763,6 +984,71 @@ def check_new_pmids(gene: str, pmids: list[str]) -> list[str]:
     return [pmid for pmid in pmids if str(pmid) not in processed_pmids]
 
 
+def _paper_relevance_score(gene: str, title: str, abstract: str) -> tuple[float, dict]:
+    """Score a candidate paper before classification.
+
+    This lightweight ranker is intentionally conservative. It prioritizes
+    papers likely to contain functional evidence while keeping a broad fallback
+    pool available so recall is not reduced to only obvious keyword hits.
+    """
+    text = f"{title or ''}\n{abstract or ''}"
+    tl = text.lower()
+    title_l = (title or "").lower()
+
+    gene_hits = sum(
+        len(re.findall(rf"\b{re.escape(term.lower())}\b", tl))
+        for term in gene_search_terms(gene)
+    )
+    cancer_hits = sum(1 for w in GENERIC_CANCER_TERMS + PANCREATIC_TERMS + GI_TERMS + list(SPECIFIC_NON_GI_TERMS) if w in tl)
+    perturb_hits = sum(1 for w in PERTURBATION_SEARCH_TERMS if w.lower() in tl)
+    phenotype_hits = sum(1 for w in PHENOTYPE_SEARCH_TERMS if w.lower() in tl)
+    model_hits = sum(1 for w in MODEL_SEARCH_TERMS if w.lower() in tl)
+    review_like = any(w in title_l for w in ["review", "meta-analysis", "systematic review"])
+    expression_only_like = (
+        any(w in tl for w in ["expression", "upregulated", "downregulated", "biomarker", "prognostic"])
+        and perturb_hits == 0
+    )
+
+    score = 0.0
+    score += min(0.28, 0.10 * gene_hits)
+    score += min(0.18, 0.05 * cancer_hits)
+    score += min(0.28, 0.09 * perturb_hits)
+    score += min(0.18, 0.045 * phenotype_hits)
+    score += min(0.12, 0.04 * model_hits)
+    if gene_hits and (perturb_hits or phenotype_hits):
+        score += 0.08
+    if perturb_hits and phenotype_hits:
+        score += 0.08
+    if review_like:
+        score -= 0.22
+    if expression_only_like:
+        score -= 0.08
+
+    details = {
+        "gene_hits": gene_hits,
+        "cancer_hits": cancer_hits,
+        "perturbation_hits": perturb_hits,
+        "phenotype_hits": phenotype_hits,
+        "model_hits": model_hits,
+        "review_like": review_like,
+        "expression_only_like": expression_only_like,
+    }
+    return round(max(0.0, min(1.0, score)), 3), details
+
+
+def rank_candidate_pmids(gene: str, pmids: list[str], meta: dict) -> tuple[list[str], dict[str, float]]:
+    scored = []
+    for original_idx, pmid in enumerate(pmids):
+        m = meta.get(str(pmid), {})
+        score, _ = _paper_relevance_score(gene, m.get("title", ""), m.get("abstract", ""))
+        # Preserve PubMed order as a tie-breaker.
+        scored.append((score, -original_idx, str(pmid)))
+    scored.sort(reverse=True)
+    ranked = [pmid for _, _, pmid in scored]
+    scores = {pmid: score for score, _, pmid in scored}
+    return ranked, scores
+
+
 def _build_overall_decision(gene: str, decision: dict,
                              confidence: float, cancer_type: str) -> str:
     """Build a plain-English explanation of the classification decision."""
@@ -801,27 +1087,64 @@ def _build_overall_decision(gene: str, decision: dict,
         return " ".join(parts)
 
 
-def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
+def analyze_gene(
+    gene: str,
+    max_papers: int = 300,
+    *,
+    force_pmids: list[str] | None = None,
+    include_processed: bool = False,
+    use_cache: bool = True,
+) -> list[dict]:
     """Full pipeline for one gene. Returns list of row dicts (one per paper)."""
     print(f"\n{'='*60}")
     print(f"  Analyzing gene: {gene}")
     print(f"{'='*60}")
 
-    pmids = pubmed_search_ids(gene, GENERIC_CANCER_TERMS + PANCREATIC_TERMS)
-    pmids = check_new_pmids(gene, pmids)
-    pmids = pmids[:max_papers]
+    if force_pmids:
+        pmids = [str(p) for p in force_pmids]
+        print(f"  [Reprocess] Forced PMID list: {len(pmids)} paper(s)")
+    else:
+        pmids = pubmed_search_ids(gene, GENERIC_CANCER_TERMS + PANCREATIC_TERMS)
+        if not include_processed:
+            pmids = check_new_pmids(gene, pmids)
 
-    if not pmids:
+    # Fetch a wider candidate pool, rank it by lightweight evidence relevance,
+    # and then apply max_papers. This makes each Colab run spend LLM time on
+    # papers more likely to contain direct functional evidence.
+    candidate_pool = pmids if force_pmids else pmids[: max(max_papers, min(len(pmids), max_papers * 3))]
+
+    if not candidate_pool:
         print(f"  No new papers to process for {gene}.")
         return []
 
-    meta = pubmed_fetch_metadata(pmids)
+    meta = pubmed_fetch_metadata(candidate_pool)
+    relevance_scores: dict[str, float] = {}
+    if force_pmids:
+        pmids = candidate_pool[:max_papers]
+        relevance_scores = {
+            str(pmid): _paper_relevance_score(
+                gene,
+                meta.get(str(pmid), {}).get("title", ""),
+                meta.get(str(pmid), {}).get("abstract", ""),
+            )[0]
+            for pmid in pmids
+        }
+    else:
+        pmids, relevance_scores = rank_candidate_pmids(gene, candidate_pool, meta)
+        pmids = pmids[:max_papers]
+        if pmids:
+            top_score = relevance_scores.get(pmids[0], 0.0)
+            bottom_score = relevance_scores.get(pmids[-1], 0.0)
+            print(
+                f"  [Ranking] Processing top {len(pmids)} candidate(s); "
+                f"relevance range {top_score:.2f}-{bottom_score:.2f}"
+            )
     rows = []
 
     for idx, pmid in enumerate(pmids):
         print(f"  [{idx+1}/{len(pmids)}] PMID {pmid}", end=" ")
 
-        cached = cache_get(gene, pmid)
+        cached = cache_get(gene, pmid) if use_cache else None
         if cached is not None:
             if cached.get("_skip"):
                 print("(cached skip)")
@@ -847,6 +1170,7 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
         ev = extract_evidence_pack(gene, abstract, fulltext)
         ev["pmcid"] = pmcid or ""
         ev["has_fulltext_context"] = bool(fulltext)
+        ev["search_relevance_score"] = relevance_scores.get(str(pmid), 0.0)
 
         decision = ensemble_classify(gene, title, abstract, ev["evidence_text"], ev)
 
@@ -926,6 +1250,8 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
             "verification_status":        decision.get("verification_status", ""),
             "verification_reasons":       decision.get("verification_reasons", ""),
             "evidence_quality_score":     decision.get("evidence_quality_score", 0),
+            "search_relevance_score":     relevance_scores.get(str(pmid), 0.0),
+            "evidence_retrieval_score":   ev.get("evidence_retrieval_score", 0.0),
             "gene_match_quality":         decision.get("gene_match_quality", ""),
             "review_recommendation":      decision.get("review_recommendation", ""),
             "review_reasons":             decision.get("review_reasons", ""),
