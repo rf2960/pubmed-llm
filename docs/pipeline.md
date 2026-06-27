@@ -52,9 +52,26 @@ The current worker uses:
 BioMistral/BioMistral-7B
 ```
 
-The LLM step produces structured labels from evidence text. It is one classifier in the pipeline, not an autonomous agent and not a RAG retriever.
+The LLM step produces structured labels from evidence text. It is one classifier
+in the pipeline, not a free-form chatbot and not a RAG retriever.
 
 Rules-only mode is available with `--no-llm` for faster triage, but it should not be treated as the preferred final workflow.
+
+## Evidence Agent Workflow
+
+After the rules and BioMistral classifier run, the project uses small
+role-specific workflow agents implemented in `evidence_agents.py`:
+
+| Agent | Purpose |
+| --- | --- |
+| Evidence Finder Agent | Summarizes extracted perturbation, in vitro, in vivo, and CRISPR-screen evidence coverage. |
+| Classifier Consensus Agent | Records whether rules and BioMistral agree and which label became primary. |
+| Skeptical Verifier Agent | Checks whether extracted snippets really support the decision using `evidence_verifier.py`. |
+| Human Review Router Agent | Recommends routine, medium-priority, or high-priority human review. |
+
+These agents are deterministic wrappers around the current evidence and labels.
+They do not retrieve new papers, call a second LLM by default, or make clinical
+claims. Their goal is auditability and review routing.
 
 ## Evidence-Support Score
 
@@ -73,6 +90,7 @@ pipeline and the score-recompute script. It scores:
 - rule/LLM agreement or disagreement
 - gene mention specificity inside extracted evidence sentences
 - evidence context, including whether PMC/full-text evidence was available
+- skeptical verifier score and review-routing status
 - penalties for expression-only, correlation-only, review-only, or missing
   evidence patterns
 
@@ -123,7 +141,6 @@ The safest operational response is chunking, logging, and verification rather th
 Keep future work evidence-grounded:
 
 - add a small gold-label evaluation set
-- add a verifier pass for rule/LLM disagreement
 - calibrate thresholds from human review labels
 - separate retrieval, evidence extraction, classification, and scoring into smaller modules
 - add tests for DB migrations and confidence scoring

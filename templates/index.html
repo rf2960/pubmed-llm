@@ -757,12 +757,24 @@ function buildEv(row, uid) {
     row.rules_functional !== undefined ? `Rules: ${row.rules_functional}` : null,
     row.verification_status ? `Verifier: ${row.verification_status}` : null,
     row.gene_match_quality ? `Gene match: ${row.gene_match_quality}` : null,
+    row.review_recommendation ? `Review route: ${row.review_recommendation}` : null,
     row.total_evidence_sents ? `Evidence sentences: ${row.total_evidence_sents}` : null,
     row.pmcid ? `PMCID: ${row.pmcid}` : null,
   ].filter(Boolean).join(' - ');
   if (row.verification_reasons) {
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">Verifier reasons</div>` +
       String(row.verification_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
+  }
+  if (row.review_reasons) {
+    parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review router reasons</div>` +
+      String(row.review_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
+  }
+  if (row.agent_trace) {
+    try {
+      const trace = JSON.parse(row.agent_trace);
+      const agents = (trace.agents || []).map(a => `<span class="badge bprio-medium">${esc(a.agent || 'Agent')}: ${esc(a.status || '')}</span>`).join(' ');
+      if (agents) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Agent workflow</div><div>${agents}</div>`);
+    } catch (e) {}
   }
   if (signals) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review signals</div><div>${signals}</div>`);
   if (row.support_reasons && row.support_reasons.length) {

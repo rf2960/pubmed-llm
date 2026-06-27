@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS papers (
     verification_reasons      TEXT,
     evidence_quality_score    REAL,
     gene_match_quality        TEXT,
+    review_recommendation     TEXT,
+    review_reasons            TEXT,
+    agent_trace               TEXT,
     evidence_perturbation     TEXT,
     evidence_in_vitro         TEXT,
     evidence_in_vivo          TEXT,
@@ -123,6 +126,9 @@ _PAPER_MIGRATIONS = {
     "verification_reasons": "TEXT",
     "evidence_quality_score": "REAL",
     "gene_match_quality": "TEXT",
+    "review_recommendation": "TEXT",
+    "review_reasons": "TEXT",
+    "agent_trace": "TEXT",
 }
 
 
@@ -270,6 +276,9 @@ def _review_signals(row: dict) -> list:
     verifier_status = str(row.get("verification_status") or "").lower()
     if verifier_status in {"needs_review", "weak_support", "not_supported"}:
         signals.append(f"verifier_{verifier_status}")
+    recommendation = str(row.get("review_recommendation") or "").lower()
+    if recommendation in {"high_priority_review", "medium_priority_review"}:
+        signals.append(recommendation)
     if row.get("gene_match_quality") == "weak":
         signals.append("weak_gene_match")
     if 0.45 <= conf <= 0.70:
@@ -293,6 +302,7 @@ def _review_priority(row: dict) -> str:
         or "functional_without_perturbation_evidence" in signals
         or "verifier_not_supported" in signals
         or "verifier_weak_support" in signals
+        or "high_priority_review" in signals
     ):
         return "high"
     if signals:
@@ -633,7 +643,7 @@ def export_to_df(
         "confidence", "evidence_functional_study", "evidence_in_vitro",
         "evidence_in_vivo", "evidence_crispr_screen", "overall_decision",
         "verification_status", "verification_reasons", "evidence_quality_score",
-        "gene_match_quality",
+        "gene_match_quality", "review_recommendation", "review_reasons",
         "review_status", "review_label", "review_notes", "reviewed_by", "reviewed_at",
     ]
     return df[[c for c in export_cols if c in df.columns]]

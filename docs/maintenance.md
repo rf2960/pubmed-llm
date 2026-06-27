@@ -22,6 +22,7 @@ Hugging Face website
   -> SQLite request_queue
   -> worker script processes pending genes
   -> pipeline.py writes paper evidence into SQLite
+  -> evidence agents verify support and route uncertain rows
   -> Drive sync makes the updated DB visible to the website
 ```
 
@@ -37,6 +38,7 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 | Gene summaries | SQLite `genes` | Stores per-gene paper/function counts and last run time. |
 | Worker pipeline | `pipeline.py` | PubMed search, full-text fetch, evidence extraction, rules, LLM classification. |
 | Evidence-support scoring | `confidence.py` | Shared confidence/evidence-support rubric for new processing and score recomputation. |
+| Evidence agents | `evidence_agents.py`, `evidence_verifier.py` | Auditable evidence finder, classifier consensus, skeptical verifier, and review router. |
 | Human review API | `app.py` `/api/review` | Saves reviewer status, label, notes, and reviewer metadata for a paper. |
 | Main worker | `scripts/process_queue.py` | Processes pending queue requests, retries failed requests, and refreshes stale existing genes in controlled batches. |
 | Confidence recompute | `scripts/recompute_confidence.py` | Re-scores existing rows after the scoring algorithm changes, without rerunning PubMed or BioMistral. |
@@ -47,10 +49,11 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 ## Human Review And Confidence
 
 The confidence score is an evidence-support score, not a calibrated probability.
-The current rubric lives in `confidence.py`. It scores direct perturbation
-evidence, phenotype/model strength, evidence depth, perturbation method strength,
-gene mention specificity, evidence context, and rule/LLM agreement, with
-penalties for expression-only, correlation-only, review-only, or
+The current rubric lives in `confidence.py` and uses agent outputs from
+`evidence_agents.py`. It scores direct perturbation evidence,
+phenotype/model strength, evidence depth, perturbation method strength, gene
+mention specificity, evidence context, skeptical-verifier status, and rule/LLM
+agreement, with penalties for expression-only, correlation-only, review-only, or
 missing-evidence patterns. The website displays a
 weak/moderate/strong label and adds review-priority signals when the row looks
 risky, such as LLM/rule disagreement, weak extracted evidence, or a functional

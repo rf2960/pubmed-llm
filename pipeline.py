@@ -16,7 +16,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 from confidence import compute_confidence
-from evidence_verifier import is_ambiguous_gene_symbol, verify_evidence
+from evidence_agents import review_router_agent, run_pre_scoring_agents, serialize_agent_trace
+from evidence_verifier import is_ambiguous_gene_symbol
 
 # Entrez
 Entrez.email       = os.environ.get("ENTREZ_EMAIL", "your_email@example.com")
@@ -619,7 +620,7 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         llm_result.get("functional_study") != rules_result.get("functional_study")
     )
 
-    verification = verify_evidence(
+    agent_result = run_pre_scoring_agents(
         gene=gene,
         title=title,
         abstract=abstract,
@@ -628,6 +629,7 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         rules_result=rules_result,
         llm_result=llm_result,
     )
+    verification = agent_result["verification"]
     ev_for_score = {**(ev or {}), **verification}
 
     conf_functional, conf_not_functional, pos_signals, neg_signals = compute_confidence(
@@ -640,6 +642,9 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         # additional soft ceiling so disagreement remains review-worthy without
         # flattening many rows to the same score.
         confidence = min(confidence, 0.72)
+    route = review_router_agent(confidence, primary, verification, llm_rules_disagree)
+    agent_trace = agent_result["trace"]
+    agent_trace["agents"].append(route["agent"])
 
     return {
         **primary,
@@ -656,6 +661,9 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         "verification_reasons":  verification["verification_reasons"],
         "evidence_quality_score": verification["evidence_quality_score"],
         "gene_match_quality":    verification["gene_match_quality"],
+        "review_recommendation": route["review_recommendation"],
+        "review_reasons":        route["review_reasons"],
+        "agent_trace":           serialize_agent_trace(agent_trace),
         "_llm_result":           llm_result,
         "_rules_result":         rules_result,
     }
@@ -919,6 +927,9 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
             "verification_reasons":       decision.get("verification_reasons", ""),
             "evidence_quality_score":     decision.get("evidence_quality_score", 0),
             "gene_match_quality":         decision.get("gene_match_quality", ""),
+            "review_recommendation":      decision.get("review_recommendation", ""),
+            "review_reasons":             decision.get("review_reasons", ""),
+            "agent_trace":                decision.get("agent_trace", ""),
             "impact_in_vitro":           "|".join(str(x) for x in (decision.get("impact_in_vitro") or [])),
             "impact_in_vivo":            "|".join(str(x) for x in (decision.get("impact_in_vivo")  or [])),
             "total_evidence_sents":      ev.get("total_evidence_sents", 0),

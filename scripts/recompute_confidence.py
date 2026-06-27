@@ -32,7 +32,7 @@ def main() -> int:
     db = configure_db_runtime(args)
 
     from confidence import compute_confidence_from_db_row
-    from evidence_verifier import verify_db_row
+    from evidence_agents import review_router_agent, run_pre_scoring_agents, serialize_agent_trace
 
     logging.info("Log file: %s", log_file)
     logging.info("DB path: %s", args.db_path)
@@ -56,7 +56,8 @@ def main() -> int:
                evidence_perturbation, evidence_in_vitro, evidence_in_vivo,
                evidence_crispr_screen, total_evidence_sents,
                verification_status, verification_reasons,
-               evidence_quality_score, gene_match_quality
+               evidence_quality_score, gene_match_quality,
+               review_recommendation, review_reasons, agent_trace
         FROM papers
         {clause}
         ORDER BY gene, pmid
@@ -70,9 +71,52 @@ def main() -> int:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     for row in rows:
-        verification = verify_db_row(row)
+        primary = {
+            "functional_study": row.get("functional_study"),
+            "in_vitro": row.get("in_vitro"),
+            "in_vivo": row.get("in_vivo"),
+            "knockout": row.get("knockout"),
+            "knockdown": row.get("knockdown"),
+            "shrna": row.get("shrna"),
+            "sirna": row.get("sirna"),
+            "crispr": row.get("crispr"),
+            "crispr_screen": row.get("crispr_screen"),
+        }
+        rules_result = {
+            **primary,
+            "functional_study": row.get("rules_functional")
+            if row.get("rules_functional") is not None
+            else row.get("functional_study"),
+        }
+        llm_result = primary if bool(row.get("classified_by_llm")) else None
+        ev = {
+            "evidence_perturbation": row.get("evidence_perturbation"),
+            "evidence_in_vitro": row.get("evidence_in_vitro"),
+            "evidence_in_vivo": row.get("evidence_in_vivo"),
+            "evidence_crispr_screen": row.get("evidence_crispr_screen"),
+            "total_evidence_sents": row.get("total_evidence_sents"),
+            "pmcid": row.get("pmcid"),
+        }
+        agent_result = run_pre_scoring_agents(
+            row.get("gene", ""),
+            row.get("title", ""),
+            "",
+            ev,
+            primary,
+            rules_result,
+            llm_result,
+        )
+        verification = agent_result["verification"]
         row.update(verification)
         confidence, conf_func, conf_nonfunc = compute_confidence_from_db_row(row)
+        route = review_router_agent(
+            confidence,
+            primary,
+            verification,
+            bool(row.get("llm_rules_disagree")),
+        )
+        trace = agent_result["trace"]
+        trace["agents"].append(route["agent"])
         old = float(row.get("confidence") or 0)
         updates.append((
             confidence,
@@ -82,6 +126,9 @@ def main() -> int:
             verification["verification_reasons"],
             verification["evidence_quality_score"],
             verification["gene_match_quality"],
+            route["review_recommendation"],
+            route["review_reasons"],
+            serialize_agent_trace(trace),
             row["gene"],
             row["pmid"],
         ))
@@ -105,7 +152,10 @@ def main() -> int:
                    verification_status=?,
                    verification_reasons=?,
                    evidence_quality_score=?,
-                   gene_match_quality=?
+                   gene_match_quality=?,
+                   review_recommendation=?,
+                   review_reasons=?,
+                   agent_trace=?
                WHERE gene=? AND pmid=?""",
             updates,
         )

@@ -2,9 +2,9 @@
 
 Evidence-grounded biomedical literature extraction for functional cancer gene analysis.
 
-This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, writes structured evidence into SQLite, and syncs the database back to the website.
+This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, runs small evidence-verification agents, writes structured evidence into SQLite, and syncs the database back to the website.
 
-The project is intentionally practical: it is a maintainable evidence triage system, not a generic RAG product, not an autonomous agent platform, and not clinical decision support.
+The project is intentionally practical: it is a maintainable evidence triage system, not a generic RAG product, not an open-ended autonomous agent platform, and not clinical decision support.
 
 ![Gene Function Lab demo homepage](docs/images/demo-home.png)
 
@@ -18,10 +18,11 @@ flowchart LR
     D --> E["PubMed and PMC retrieval"]
     E --> F["Rule-based evidence detection"]
     F --> G["BioMistral-7B classifier"]
-    G --> H["SQLite papers and genes tables"]
-    H --> I["Google Drive DB file"]
-    I --> B
-    B --> J["Search, evidence table, review notes, CSV export"]
+    G --> H["Evidence agents: finder, consensus, verifier, review router"]
+    H --> I["SQLite papers and genes tables"]
+    I --> J["Google Drive DB file"]
+    J --> B
+    B --> K["Search, evidence table, review notes, CSV export"]
 ```
 
 The hosted website is CPU-only. The BioMistral model runs in Colab or another GPU environment.
@@ -37,6 +38,7 @@ The current version combines rule-based evidence detection with an LLM classifie
 - perturbation signals such as knockout, knockdown, siRNA, shRNA, CRISPR, and CRISPR screen
 - extracted evidence snippets
 - LLM/rule disagreement diagnostics
+- evidence-agent verification status, review recommendation, and agent trace
 - an evidence-support confidence score
 - human review status, label, reviewer notes, and reviewer timestamp
 
@@ -85,10 +87,11 @@ flowchart TD
     F --> G["Fetch metadata and PMC text"]
     G --> H["Extract evidence sentences"]
     H --> I["Rules plus BioMistral classifier"]
-    I --> J["db.upsert_papers_bulk"]
-    J --> K["Update genes summary"]
-    K --> L["Mark queue done or error"]
-    L --> M["Drive upload or website sync"]
+    I --> J["Evidence agent workflow"]
+    J --> K["db.upsert_papers_bulk"]
+    K --> L["Update genes summary"]
+    L --> M["Mark queue done or error"]
+    M --> N["Drive upload or website sync"]
 ```
 
 Monthly refresh now uses the same maintenance entry point. `scripts/process_queue.py`
@@ -104,6 +107,8 @@ processes pending queue requests first, then refreshes existing genes whose
 | `db.py` | SQLite schema, migrations, queries, queue helpers, review helpers, export helpers. |
 | `drive_sync.py` | Google Drive download/upload logic for the website DB. |
 | `confidence.py` | Shared evidence-support scoring rubric used by both new processing and score recomputation. |
+| `evidence_agents.py` | Role-specific evidence agents: evidence finder, classifier consensus, skeptical verifier, and review router. |
+| `evidence_verifier.py` | Deterministic verifier used by the agent workflow and confidence scoring. |
 | `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |
 | `scripts/check_queue_status.py` | Prints DB and queue counts. |
 | `scripts/process_queue.py` | Main maintenance worker for pending requests, failed requests, and stale existing-gene refresh. |
