@@ -283,7 +283,10 @@ Full guides:
 
 - Processing is slow because each paper can require PubMed lookup, PMC fetch, rule extraction, and LLM inference.
 - Colab is workable for maintenance but not ideal as a production worker.
-- The confidence score is evidence-support, not a validated probability.
+- The confidence score is evidence-support, not a validated probability. It now
+  includes a deterministic skeptical verifier that checks whether the extracted
+  snippets support direct gene perturbation, phenotype evidence, gene-specific
+  matching, and rule/LLM agreement.
 - The system is not guaranteed to retrieve every relevant paper.
 - Human review labels are stored in SQLite and require careful DB sync/backup discipline.
 - The pipeline has not yet been evaluated against a formal gold-label benchmark.
@@ -294,9 +297,9 @@ Highest-value future upgrades:
 
 1. Create a small manually reviewed gold-label set.
 2. Report precision, recall, F1, and disagreement cases.
-3. Add a verifier pass for weak evidence, LLM/rule disagreement, and high-impact labels.
-4. Improve confidence calibration using reviewer feedback.
-5. Move routine refresh from Colab to a scheduled GPU worker when the lab has stable compute.
-6. Add lightweight CI checks for Python syntax, schema migration, and secret scanning.
+3. Improve confidence calibration using reviewer feedback and a manually labeled
+   benchmark set.
+4. Move routine refresh from Colab to a scheduled GPU worker when the lab has stable compute.
+5. Add lightweight CI checks for Python syntax, schema migration, and secret scanning.
 
 The next AI step should be evidence-grounded verification and human review routing, not a generic vector-database RAG rewrite.

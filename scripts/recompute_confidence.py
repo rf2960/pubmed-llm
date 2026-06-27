@@ -32,6 +32,7 @@ def main() -> int:
     db = configure_db_runtime(args)
 
     from confidence import compute_confidence_from_db_row
+    from evidence_verifier import verify_db_row
 
     logging.info("Log file: %s", log_file)
     logging.info("DB path: %s", args.db_path)
@@ -53,7 +54,9 @@ def main() -> int:
                confidence_not_functional, classified_by_llm,
                llm_rules_disagree, rules_functional,
                evidence_perturbation, evidence_in_vitro, evidence_in_vivo,
-               evidence_crispr_screen, total_evidence_sents
+               evidence_crispr_screen, total_evidence_sents,
+               verification_status, verification_reasons,
+               evidence_quality_score, gene_match_quality
         FROM papers
         {clause}
         ORDER BY gene, pmid
@@ -67,9 +70,21 @@ def main() -> int:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     for row in rows:
+        verification = verify_db_row(row)
+        row.update(verification)
         confidence, conf_func, conf_nonfunc = compute_confidence_from_db_row(row)
         old = float(row.get("confidence") or 0)
-        updates.append((confidence, conf_func, conf_nonfunc, row["gene"], row["pmid"]))
+        updates.append((
+            confidence,
+            conf_func,
+            conf_nonfunc,
+            verification["verification_status"],
+            verification["verification_reasons"],
+            verification["evidence_quality_score"],
+            verification["gene_match_quality"],
+            row["gene"],
+            row["pmid"],
+        ))
         if len(preview) < 10 and abs(confidence - old) >= 0.05:
             preview.append((row["gene"], row["pmid"], old, confidence))
 
@@ -86,7 +101,11 @@ def main() -> int:
             """UPDATE papers
                SET confidence=?,
                    confidence_functional=?,
-                   confidence_not_functional=?
+                   confidence_not_functional=?,
+                   verification_status=?,
+                   verification_reasons=?,
+                   evidence_quality_score=?,
+                   gene_match_quality=?
                WHERE gene=? AND pmid=?""",
             updates,
         )

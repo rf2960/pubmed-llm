@@ -216,6 +216,13 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
     ) + 0.26 * _bounded_count_score(evidence_chars, 900.0) + 0.12 * min(1.0, evidence_categories / 3.0)
     context_strength = min(1.0, context_strength)
     text_flags = _text_flags(title, abstract, ev)
+    verification_status = str(ev.get("verification_status") or "").strip().lower()
+    gene_match_quality = str(ev.get("gene_match_quality") or "").strip().lower()
+    try:
+        verifier_score = float(ev.get("evidence_quality_score") or 0.0)
+    except (TypeError, ValueError):
+        verifier_score = 0.0
+    verifier_score = max(0.0, min(1.0, verifier_score))
 
     return {
         "perturbation_score": perturbation_score,
@@ -227,6 +234,9 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
         "source_reliability": source_reliability,
         "gene_specificity": gene_specificity,
         "context_strength": context_strength,
+        "verifier_score": verifier_score,
+        "verification_status": verification_status,
+        "gene_match_quality": gene_match_quality,
         "negative_text_score": min(
             1.0,
             (0.35 if text_flags["expression_only"] else 0.0)
@@ -265,6 +275,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         + 0.07 * components["source_reliability"]
         + 0.06 * components["gene_specificity"]
         + 0.04 * components["context_strength"]
+        + 0.08 * components["verifier_score"]
     )
 
     if components["expression_only"]:
@@ -286,6 +297,12 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         conf_functional = min(conf_functional, 0.55)
     if components["disagreement"]:
         conf_functional = min(conf_functional, 0.72 + 0.05 * components["evidence_depth_score"])
+    if components["verification_status"] == "not_supported":
+        conf_functional = min(conf_functional, 0.48)
+    elif components["verification_status"] == "weak_support":
+        conf_functional = min(conf_functional, 0.64)
+    elif components["verification_status"] == "needs_review":
+        conf_functional = min(conf_functional, 0.76)
 
     no_perturbation = 1.0 - components["perturbation_score"]
     no_phenotype = 1.0 - components["phenotype_score"]
@@ -299,11 +316,14 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         + 0.06 * components["source_reliability"]
         + 0.04 * (1.0 - components["evidence_depth_score"])
         + 0.02 * (1.0 - components["context_strength"])
+        + 0.04 * (1.0 - components["verifier_score"])
     )
     if components["perturbation_score"] >= 0.70 and components["phenotype_score"] > 0:
         conf_not_functional -= 0.25
     if components["disagreement"]:
         conf_not_functional = min(conf_not_functional, 0.72 + 0.05 * components["negative_text_score"])
+    if components["verification_status"] == "needs_review":
+        conf_not_functional = min(conf_not_functional, 0.76)
 
     pos_signals = {
         "direct_gene_perturbation_score": round(components["perturbation_score"], 2),
@@ -312,6 +332,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "classifier_agreement_score": round(components["agreement_functional"], 2),
         "source_reliability_score": round(components["source_reliability"], 2),
         "context_strength_score": round(components["context_strength"], 2),
+        "evidence_verifier_score": round(components["verifier_score"], 2),
         "strong_method_score": round(components["method_strength"], 2),
         "in_vitro_phenotype": components["in_vitro"],
         "in_vivo_phenotype": components["in_vivo"],
@@ -324,6 +345,8 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "no_evidence_sents": components["n_evidence_sents"] == 0,
         "llm_rules_disagree": components["disagreement"],
         "rules_only": components["rules_only"],
+        "verification_status": components["verification_status"],
+        "weak_gene_match": components["gene_match_quality"] == "weak",
     }
 
     return _clamp_score(conf_functional), _clamp_score(conf_not_functional), pos_signals, neg_signals
@@ -361,6 +384,9 @@ def compute_confidence_from_db_row(row: dict) -> tuple[float, float, float]:
         "evidence_crispr_screen": row.get("evidence_crispr_screen"),
         "total_evidence_sents": row.get("total_evidence_sents"),
         "pmcid": row.get("pmcid"),
+        "verification_status": row.get("verification_status"),
+        "evidence_quality_score": row.get("evidence_quality_score"),
+        "gene_match_quality": row.get("gene_match_quality"),
     }
     conf_func, conf_nonfunc, _, _ = compute_confidence(
         row.get("gene", ""), llm_result, rules_result, ev,
@@ -397,6 +423,9 @@ def explain_confidence_from_db_row(row: dict) -> dict:
         "evidence_crispr_screen": row.get("evidence_crispr_screen"),
         "total_evidence_sents": row.get("total_evidence_sents"),
         "pmcid": row.get("pmcid"),
+        "verification_status": row.get("verification_status"),
+        "evidence_quality_score": row.get("evidence_quality_score"),
+        "gene_match_quality": row.get("gene_match_quality"),
     }
     c = _support_components(row.get("gene", ""), llm_result, rules_result, ev, row.get("title", ""), "")
 
@@ -434,6 +463,13 @@ def explain_confidence_from_db_row(row: dict) -> dict:
             weak.append("correlation/biomarker language")
         reasons.append("penalty: " + ", ".join(weak))
 
+    if c["verification_status"] in {"needs_review", "weak_support", "not_supported"}:
+        reasons.append(f"verifier status: {c['verification_status'].replace('_', ' ')}")
+    elif c["verification_status"] == "supported":
+        reasons.append("verifier status: supported")
+    if c["gene_match_quality"] == "weak":
+        reasons.append("weak gene-specific evidence match")
+
     return {
         "components": {
             "perturbation": round(c["perturbation_score"], 2),
@@ -443,6 +479,7 @@ def explain_confidence_from_db_row(row: dict) -> dict:
             "source_reliability": round(c["source_reliability"], 2),
             "method_strength": round(c["method_strength"], 2),
             "context": round(c["context_strength"], 2),
+            "verifier": round(c["verifier_score"], 2),
         },
         "reasons": reasons,
     }

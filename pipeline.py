@@ -16,6 +16,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 from confidence import compute_confidence
+from evidence_verifier import is_ambiguous_gene_symbol, verify_evidence
 
 # Entrez
 Entrez.email       = os.environ.get("ENTREZ_EMAIL", "your_email@example.com")
@@ -135,14 +136,45 @@ def entrez_call(fn, *args, max_tries=5, base_sleep=0.4, **kwargs):
     return None
 
 
-def pubmed_search_ids(gene: str, extra_terms: list[str], batch_size=2000) -> list[str]:
-    gene_q = f'("{gene}"[Title/Abstract] OR "{gene}"[All Fields])'
+STRICT_GENE_QUERY = os.environ.get("PUBMED_STRICT_GENE_QUERY", "1").strip() != "0"
+
+
+def _build_pubmed_query(gene: str, extra_terms: list[str], allow_all_fields: bool = False) -> str:
+    """Build a precision-oriented PubMed query for a gene and cancer terms.
+
+    Older versions searched the gene in ``All Fields`` by default. That improves
+    recall but can retrieve unrelated papers for short or ambiguous gene symbols.
+    The default now requires a title/abstract gene mention; set
+    PUBMED_STRICT_GENE_QUERY=0 to allow the broader fallback for non-ambiguous
+    genes.
+    """
+    gene_ta = f'"{gene}"[Title/Abstract]'
+    if allow_all_fields and not is_ambiguous_gene_symbol(gene):
+        gene_q = f"({gene_ta} OR \"{gene}\"[All Fields])"
+    else:
+        gene_q = gene_ta
     kw_q   = " OR ".join(f'"{k}"[Title/Abstract]' for k in extra_terms)
-    term   = f"({gene_q} AND ({kw_q}))"
+    return f"({gene_q} AND ({kw_q}))"
+
+
+def pubmed_search_ids(gene: str, extra_terms: list[str], batch_size=2000) -> list[str]:
+    allow_all_fields = not STRICT_GENE_QUERY and not is_ambiguous_gene_symbol(gene)
+    term = _build_pubmed_query(gene, extra_terms, allow_all_fields=allow_all_fields)
 
     with entrez_call(Entrez.esearch, db="pubmed", term=term, retmax=0, retmode="xml") as h:
         total = int(Entrez.read(h)["Count"])
-    print(f"  [PubMed] {gene}: {total} hits")
+
+    if total == 0 and STRICT_GENE_QUERY and not is_ambiguous_gene_symbol(gene):
+        broad_term = _build_pubmed_query(gene, extra_terms, allow_all_fields=True)
+        with entrez_call(Entrez.esearch, db="pubmed", term=broad_term, retmax=0, retmode="xml") as h:
+            broad_total = int(Entrez.read(h)["Count"])
+        if broad_total:
+            term = broad_term
+            total = broad_total
+            print(f"  [PubMed] {gene}: strict query had 0 hits; using broad fallback.")
+
+    query_mode = "title/abstract + all fields" if '"[All Fields]' in term else "title/abstract"
+    print(f"  [PubMed] {gene}: {total} hits ({query_mode})")
 
     pmids = []
     fetch_limit = min(total, PUBMED_MAX_RETSTART + 1)
@@ -587,8 +619,19 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         llm_result.get("functional_study") != rules_result.get("functional_study")
     )
 
+    verification = verify_evidence(
+        gene=gene,
+        title=title,
+        abstract=abstract,
+        ev=ev,
+        primary=primary,
+        rules_result=rules_result,
+        llm_result=llm_result,
+    )
+    ev_for_score = {**(ev or {}), **verification}
+
     conf_functional, conf_not_functional, pos_signals, neg_signals = compute_confidence(
-        gene, llm_result, rules_result, ev, title, abstract
+        gene, llm_result, rules_result, ev_for_score, title, abstract
     )
 
     confidence = conf_functional if primary.get("functional_study") else conf_not_functional
@@ -609,6 +652,10 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         "llm_available":         llm_result is not None,
         "rules_functional":      rules_result.get("functional_study"),
         "llm_reasoning":         (llm_result or {}).get("llm_reasoning", ""),
+        "verification_status":   verification["verification_status"],
+        "verification_reasons":  verification["verification_reasons"],
+        "evidence_quality_score": verification["evidence_quality_score"],
+        "gene_match_quality":    verification["gene_match_quality"],
         "_llm_result":           llm_result,
         "_rules_result":         rules_result,
     }
@@ -868,6 +915,10 @@ def analyze_gene(gene: str, max_papers: int = 300) -> list[dict]:
             "llm_rules_disagree":        bool(decision.get("llm_rules_disagree")),
             "rules_functional":          bool(decision.get("rules_functional")),
             "llm_reasoning":             decision.get("llm_reasoning", ""),
+            "verification_status":        decision.get("verification_status", ""),
+            "verification_reasons":       decision.get("verification_reasons", ""),
+            "evidence_quality_score":     decision.get("evidence_quality_score", 0),
+            "gene_match_quality":         decision.get("gene_match_quality", ""),
             "impact_in_vitro":           "|".join(str(x) for x in (decision.get("impact_in_vitro") or [])),
             "impact_in_vivo":            "|".join(str(x) for x in (decision.get("impact_in_vivo")  or [])),
             "total_evidence_sents":      ev.get("total_evidence_sents", 0),

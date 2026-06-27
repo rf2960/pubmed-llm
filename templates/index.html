@@ -755,9 +755,15 @@ function buildEv(row, uid) {
   const meta = [
     row.classified_by_llm !== undefined ? `LLM: ${row.classified_by_llm}` : null,
     row.rules_functional !== undefined ? `Rules: ${row.rules_functional}` : null,
+    row.verification_status ? `Verifier: ${row.verification_status}` : null,
+    row.gene_match_quality ? `Gene match: ${row.gene_match_quality}` : null,
     row.total_evidence_sents ? `Evidence sentences: ${row.total_evidence_sents}` : null,
     row.pmcid ? `PMCID: ${row.pmcid}` : null,
   ].filter(Boolean).join(' - ');
+  if (row.verification_reasons) {
+    parts.push(`<div class="ev-lbl" style="margin-top:12px;">Verifier reasons</div>` +
+      String(row.verification_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
+  }
   if (signals) parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review signals</div><div>${signals}</div>`);
   if (row.support_reasons && row.support_reasons.length) {
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">Evidence support explanation</div>` +
@@ -772,6 +778,7 @@ function buildEv(row, uid) {
       ['source_reliability', 'Source reliability'],
       ['method_strength', 'Method strength'],
       ['context', 'Evidence context'],
+      ['verifier', 'Skeptical verifier'],
     ];
     parts.push(`<div class="support-detail">${labels.map(([key, label]) => {
       const val = row.support_components[key];
