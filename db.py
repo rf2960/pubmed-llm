@@ -308,6 +308,7 @@ def query_papers(
     min_conf:    float = 0.0,
     page:        int  = 1,
     per_page:    int  = 20,
+    paper_sort:  str  = "support_desc",
     db_path:     str  = None,
 ) -> dict:
     genes_upper  = [g.upper() for g in genes]
@@ -333,14 +334,15 @@ def query_papers(
         where.append("confidence >= ?"); params.append(min_conf)
 
     clause = " AND ".join(where)
+    order_sql, order_params = _paper_order_clause(genes_upper, paper_sort)
     with get_conn(db_path) as conn:
         total  = conn.execute(
             f"SELECT COUNT(*) as n FROM papers WHERE {clause}", params
         ).fetchone()["n"]
         offset = (page - 1) * per_page
         rows   = conn.execute(
-            f"SELECT * FROM papers WHERE {clause} ORDER BY gene, confidence DESC LIMIT ? OFFSET ?",
-            params + [per_page, offset]
+            f"SELECT * FROM papers WHERE {clause} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+            params + order_params + [per_page, offset]
         ).fetchall()
 
     return {
@@ -350,6 +352,27 @@ def query_papers(
         "pages":    max(1, (total + per_page - 1) // per_page),
         "rows":     [annotate_paper_row(dict(r)) for r in rows],
     }
+
+
+def _paper_order_clause(genes_upper: list, paper_sort: str = "support_desc") -> tuple:
+    """Build a paper ORDER BY clause that keeps selected genes grouped.
+
+    The first sort key preserves the gene card order supplied by the API.
+    The second sort key controls paper order inside each gene group.
+    """
+    case_parts = [f"WHEN ? THEN {i}" for i, _ in enumerate(genes_upper)]
+    gene_order = f"CASE gene {' '.join(case_parts)} ELSE {len(genes_upper)} END"
+    sort_map = {
+        "support_desc": "confidence DESC, year DESC, title COLLATE NOCASE ASC",
+        "support_asc": "confidence ASC, year DESC, title COLLATE NOCASE ASC",
+        "year_desc": "CAST(year AS INTEGER) DESC, confidence DESC, title COLLATE NOCASE ASC",
+        "year_asc": "CAST(year AS INTEGER) ASC, confidence DESC, title COLLATE NOCASE ASC",
+        "title_asc": "title COLLATE NOCASE ASC, year DESC, confidence DESC",
+        "title_desc": "title COLLATE NOCASE DESC, year DESC, confidence DESC",
+        "functional_desc": "functional_study DESC, confidence DESC, year DESC",
+    }
+    paper_order = sort_map.get(paper_sort, sort_map["support_desc"])
+    return f"{gene_order}, {paper_order}", list(genes_upper)
 
 
 def gene_summary(gene: str, min_conf: float = 0.0, db_path: str = None) -> dict:
@@ -526,6 +549,7 @@ def export_to_df(
     functional:  str   = "all",
     review_status: str = "all",
     min_conf:    float = 0.0,
+    paper_sort:  str   = "support_desc",
     db_path:     str   = None,
 ) -> pd.DataFrame:
     where, params = [], []
@@ -551,10 +575,14 @@ def export_to_df(
         where.append("confidence >= ?"); params.append(min_conf)
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
+    order_sql = "gene, confidence DESC"
+    order_params = []
+    if genes:
+        order_sql, order_params = _paper_order_clause([g.upper() for g in genes], paper_sort)
     with get_conn(db_path) as conn:
         df = pd.read_sql_query(
-            f"SELECT * FROM papers {clause} ORDER BY gene, confidence DESC",
-            conn, params=params
+            f"SELECT * FROM papers {clause} ORDER BY {order_sql}",
+            conn, params=params + order_params
         )
 
     if df.empty:

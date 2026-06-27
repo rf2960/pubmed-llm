@@ -75,6 +75,11 @@ textarea::placeholder,input::placeholder{color:var(--faint);}
 .scard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:18px 20px;}
 .sval{font-size:30px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.03em;}
 .slbl{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:5px;}
+.sortbar{display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:12px 14px;margin:-8px 0 18px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.sortgroup{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.sortlabel{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);}
+.sortselect{width:auto;min-width:185px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;color:var(--text);font-family:var(--sans);}
+.sortnote{font-size:12px;color:var(--muted);}
 .gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-bottom:24px;}
 .gcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl2);padding:18px;cursor:pointer;transition:all .15s;}
 .gcard:hover{border-color:var(--accent);box-shadow:0 2px 12px rgba(37,99,235,.1);}
@@ -282,6 +287,32 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
         <div class="scard"><div class="sval" id="s-func">—</div><div class="slbl">Functional studies</div></div>
         <div class="scard"><div class="sval" id="s-match">—</div><div class="slbl">Matching query</div></div>
       </div>
+      <div id="sortbar" class="sortbar">
+        <div class="sortgroup">
+          <span class="sortlabel">Gene cards</span>
+          <select id="gene-sort" class="sortselect" onchange="rerunSearchIfReady()">
+            <option value="selected">Selected order</option>
+            <option value="functional_desc">Most functional papers</option>
+            <option value="functional_pct_desc">Highest functional percent</option>
+            <option value="total_desc">Most total papers</option>
+            <option value="support_desc">Highest evidence support</option>
+            <option value="gene_asc">Gene A-Z</option>
+          </select>
+        </div>
+        <div class="sortgroup">
+          <span class="sortlabel">Papers within each gene</span>
+          <select id="paper-sort" class="sortselect" onchange="rerunSearchIfReady()">
+            <option value="support_desc">Evidence support high-low</option>
+            <option value="support_asc">Evidence support low-high</option>
+            <option value="year_desc">Newest first</option>
+            <option value="year_asc">Oldest first</option>
+            <option value="title_asc">Title A-Z</option>
+            <option value="title_desc">Title Z-A</option>
+            <option value="functional_desc">Functional first</option>
+          </select>
+        </div>
+        <span class="sortnote">Papers stay grouped by the gene-card order.</span>
+      </div>
       <div id="gcards" class="gcards" style="display:none;"></div>
       <div id="tbl-wrap" class="tbl-wrap" style="display:none;">
         <div class="tbl-top">
@@ -360,7 +391,7 @@ function api(path, extra) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-const S = {page:1,perPage:25,genes:[],allGenes:[],cancer:'all',func:'all',review:'all',conf:0,total:0,pages:1};
+const S = {page:1,perPage:25,genes:[],allGenes:[],cancer:'all',func:'all',review:'all',conf:0,total:0,pages:1,geneSort:'selected',paperSort:'support_desc'};
 
 window.addEventListener('DOMContentLoaded', () => { renderSelectedGenes(); loadStats(); setInterval(loadStats, 60000); });
 
@@ -428,6 +459,7 @@ function removeSelectedGene(gene) {
 function clearSelectedGenes() {
   setSelectedGenes([]);
   document.getElementById('s-match').textContent = '-';
+  document.getElementById('sortbar').style.display = 'none';
 }
 
 function selectAllGenes() {
@@ -480,6 +512,8 @@ async function doSearch(page) {
   S.func=document.getElementById('f-func').value;
   S.review=document.getElementById('f-review').value;
   S.conf=parseFloat(document.getElementById('f-conf').value);
+  S.geneSort=document.getElementById('gene-sort')?.value || 'selected';
+  S.paperSort=document.getElementById('paper-sort')?.value || 'support_desc';
   S.page=page||1;
   const btn = document.querySelector('.btn-p');
   btn.disabled=true; btn.innerHTML='<span class="spin"></span> Searching…';
@@ -487,17 +521,26 @@ async function doSearch(page) {
     const url = api('/api/query', {
       genes: genes.join(','), cancer_type: S.cancer,
       functional: S.func, review_status: S.review, min_conf: S.conf,
+      gene_sort: S.geneSort, paper_sort: S.paperSort,
       page: S.page, per_page: S.perPage
     });
     const d = await fetch(url).then(r=>r.json());
     S.total=d.total; S.pages=d.pages;
+    const orderedGenes = d.genes_order || genes;
     document.getElementById('s-match').textContent = fmt(d.total);
-    renderCards(genes, d.summaries||{});
+    document.getElementById('sortbar').style.display = 'flex';
+    renderCards(orderedGenes, d.summaries||{});
     renderTable(d.rows||[], d.total);
     renderPages(d.page, d.pages);
     document.getElementById('results-empty').style.display = (d.rows&&d.rows.length)?'none':'block';
   } catch(e) { showEmpty('Error: '+e.message); }
   finally { btn.disabled=false; btn.textContent='Search Database'; }
+}
+
+function rerunSearchIfReady() {
+  const genes = parseGenes(document.getElementById('gene-input').value);
+  if (!genes.length || !S.total) return;
+  doSearch(1);
 }
 
 function topBreakdown(items) {
@@ -818,13 +861,18 @@ function doExport() {
     cancer_type: document.getElementById('f-cancer').value,
     functional: document.getElementById('f-func').value,
     review_status: document.getElementById('f-review').value,
-    min_conf: document.getElementById('f-conf').value
+    min_conf: document.getElementById('f-conf').value,
+    gene_sort: document.getElementById('gene-sort')?.value || 'selected',
+    paper_sort: document.getElementById('paper-sort')?.value || 'support_desc'
   });
 }
 
 function doExportGeneSummary() {
   const genes = parseGenes(document.getElementById('gene-input').value);
-  const params = { min_conf: document.getElementById('f-conf').value };
+  const params = {
+    min_conf: document.getElementById('f-conf').value,
+    gene_sort: document.getElementById('gene-sort')?.value || 'selected'
+  };
   if (genes.length) params.genes = genes.join(',');
   window.location.href = api('/api/export_gene_summary', params);
 }
@@ -873,6 +921,7 @@ async function loadQueue() {
 function showEmpty(msg) {
   document.getElementById('tbl-wrap').style.display = 'none';
   document.getElementById('gcards').style.display = 'none';
+  document.getElementById('sortbar').style.display = 'none';
   const el = document.getElementById('results-empty');
   el.style.display = 'block'; el.innerHTML = `<div class="empty-icon">DNA</div>${esc(msg)}`;
 }

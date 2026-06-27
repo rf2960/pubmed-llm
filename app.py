@@ -69,6 +69,25 @@ database.DB_PATH = drive_sync.LOCAL_DB_PATH
 def _ensure_db_schema():
     database.init_db(_local_db())
 
+
+def _sort_genes_for_display(genes, summaries, gene_sort):
+    def functional_pct(g):
+        summary = summaries.get(g, {})
+        total = summary.get("total") or 0
+        return (summary.get("functional") or 0) / total if total else 0
+
+    if gene_sort == "gene_asc":
+        return sorted(genes)
+    if gene_sort == "functional_desc":
+        return sorted(genes, key=lambda g: (-(summaries.get(g, {}).get("functional") or 0), g))
+    if gene_sort == "functional_pct_desc":
+        return sorted(genes, key=lambda g: (-functional_pct(g), -(summaries.get(g, {}).get("functional") or 0), g))
+    if gene_sort == "total_desc":
+        return sorted(genes, key=lambda g: (-(summaries.get(g, {}).get("total") or 0), g))
+    if gene_sort == "support_desc":
+        return sorted(genes, key=lambda g: (-(summaries.get(g, {}).get("support_avg") or 0), g))
+    return list(genes)
+
 # Login page 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -183,6 +202,8 @@ def api_query():
     cancer_type = request.args.get("cancer_type", "all")
     functional  = request.args.get("functional",  "all")
     review_status = request.args.get("review_status", "all")
+    gene_sort   = request.args.get("gene_sort", "selected")
+    paper_sort  = request.args.get("paper_sort", "support_desc")
     page        = max(1,   int(request.args.get("page",     1)))
     per_page    = min(100, int(request.args.get("per_page", 20)))
     if not genes_raw:
@@ -190,15 +211,19 @@ def api_query():
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()]
     try:
         _ensure_db_schema()
-        result = database.query_papers(
-            genes=genes, cancer_type=cancer_type, functional=functional,
-            review_status=review_status,
-            min_conf=min_conf, page=page, per_page=per_page, db_path=_local_db(),
-        )
-        result["summaries"] = {
+        summaries = {
             g: database.gene_summary(g, min_conf=min_conf, db_path=_local_db())
             for g in genes
         }
+        sorted_genes = _sort_genes_for_display(genes, summaries, gene_sort)
+        result = database.query_papers(
+            genes=sorted_genes, cancer_type=cancer_type, functional=functional,
+            review_status=review_status,
+            min_conf=min_conf, page=page, per_page=per_page,
+            paper_sort=paper_sort, db_path=_local_db(),
+        )
+        result["summaries"] = summaries
+        result["genes_order"] = sorted_genes
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "rows": [], "total": 0, "summaries": {}}), 200
@@ -314,13 +339,21 @@ def api_export():
     cancer_type = request.args.get("cancer_type", "all")
     functional  = request.args.get("functional",  "all")
     review_status = request.args.get("review_status", "all")
+    gene_sort = request.args.get("gene_sort", "selected")
+    paper_sort = request.args.get("paper_sort", "support_desc")
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()] if genes_raw else None
     try:
         _ensure_db_schema()
+        if genes:
+            summaries = {
+                g: database.gene_summary(g, min_conf=min_conf, db_path=_local_db())
+                for g in genes
+            }
+            genes = _sort_genes_for_display(genes, summaries, gene_sort)
         df = database.export_to_df(
             genes=genes, cancer_type=cancer_type,
             functional=functional, review_status=review_status,
-            min_conf=min_conf, db_path=_local_db(),
+            min_conf=min_conf, paper_sort=paper_sort, db_path=_local_db(),
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -339,9 +372,16 @@ def api_export_gene_summary():
     if auth: return auth
     genes_raw = request.args.get("genes", "").strip()
     min_conf = float(request.args.get("min_conf", 0.0))
+    gene_sort = request.args.get("gene_sort", "selected")
     genes = [g.strip().upper() for g in genes_raw.split(",") if g.strip()] if genes_raw else None
     try:
         _ensure_db_schema()
+        if genes:
+            summaries = {
+                g: database.gene_summary(g, min_conf=min_conf, db_path=_local_db())
+                for g in genes
+            }
+            genes = _sort_genes_for_display(genes, summaries, gene_sort)
         df = database.export_gene_summary_to_df(
             genes=genes,
             min_conf=min_conf,
