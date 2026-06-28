@@ -309,6 +309,7 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
             <option value="title_asc">Title A-Z</option>
             <option value="title_desc">Title Z-A</option>
             <option value="functional_desc">Functional first</option>
+            <option value="paper_type">Paper type</option>
           </select>
         </div>
         <span class="sortnote">Papers stay grouped by the gene-card order.</span>
@@ -707,7 +708,7 @@ function renderTable(rows, total) {
   wrap.style.display = 'block';
   document.getElementById('tbl-title').textContent = `${fmt(total)} paper${total !== 1 ? 's' : ''}`;
   let html = `<table><thead><tr>
-    <th>Gene</th><th>Title</th><th>Year</th><th>Cancer</th>
+    <th>Gene</th><th>Title</th><th>Year</th><th>Type</th><th>Cancer</th>
     <th>Functional</th><th>Where</th><th>Evidence support</th><th>Review</th><th></th>
   </tr></thead><tbody>`;
   rows.forEach((row, i) => {
@@ -724,25 +725,31 @@ function renderTable(rows, total) {
              `<span class="badge bn">Unknown</span>`;
     const ct = row.cancer_type || 'unk';
     const cb = `<span class="badge b${ct === 'pancreatic' ? 'panc' : ct === 'gi' ? 'gi' : ct === 'cancer' ? 'ca' : 'unk'}">${esc(ct)}</span>`;
+    const pt = (row.paper_type || 'unknown').replace(/_/g, ' ');
+    const ptClass = ['review','clinical_prognostic','expression_association','methods_or_dataset'].includes(row.paper_type || '') ? 'bn' : 'bb';
+    const pb = `<span class="badge ${ptClass}">${esc(pt)}</span>`;
     const ttl = row.pubmed_link ? `<a href="${attr(row.pubmed_link)}" target="_blank" rel="noopener">${esc(row.title)}</a>` : esc(row.title);
     const dis = row.llm_rules_disagree ? `<span class="bdis">disagree</span>` : '';
     html += `<tr>
       <td class="tdg">${esc(row.gene || '')}</td>
       <td class="tdt">${ttl}<div class="tdm">${esc(row.journal || '')}${row.doi ? ' - ' + esc(row.doi) : ''}</div></td>
       <td style="font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;">${esc(row.year || '')}</td>
-      <td>${cb}</td><td>${fb}${dis}</td><td>${wb}</td>
+      <td>${pb}</td><td>${cb}</td><td>${fb}${dis}</td><td>${wb}</td>
       <td><div class="cbar"><div class="cbg"><div class="cfg" style="width:${Math.round(conf * 100)}%;background:${cc};"></div></div>
       <span class="cnum">${conf.toFixed(2)}</span></div><div class="tdm">${esc(label)} heuristic</div></td>
       <td><span class="badge bprio-${attr(priority)}">${esc(status)}</span></td>
       <td><button class="xbtn" onclick="toggleEv('${uid}',this)">More</button></td>
     </tr>
-    <tr class="ev-row" id="${uid}"><td colspan="9" class="ev-cell">${buildEv(row, uid)}</td></tr>`;
+    <tr class="ev-row" id="${uid}"><td colspan="10" class="ev-cell">${buildEv(row, uid)}</td></tr>`;
   });
   document.getElementById('tbl-body').innerHTML = html + '</tbody></table>';
 }
 
 function buildEv(row, uid) {
   const parts = [];
+  if (row.best_evidence_quote) {
+    parts.push(`<div class="ev-lbl">Best gene-linked evidence quote</div><div class="ev-txt">${esc(row.best_evidence_quote)}</div>`);
+  }
   if (row.llm_reasoning) parts.push(`<div class="ev-lbl">LLM reasoning</div><div class="ev-note">${esc(row.llm_reasoning)}</div>`);
   [['evidence_perturbation','Perturbation'], ['evidence_in_vitro','In vitro'],
    ['evidence_in_vivo','In vivo'], ['evidence_crispr_screen','CRISPR screen']].forEach(([f, l]) => {
@@ -753,12 +760,16 @@ function buildEv(row, uid) {
   });
   const signals = (row.review_signals || []).map(x => `<span class="badge bprio-medium">${esc(x.replace(/_/g, ' '))}</span>`).join(' ');
   const meta = [
+    row.paper_type ? `Paper type: ${String(row.paper_type).replace(/_/g, ' ')}` : null,
+    row.publication_types ? `PubMed type: ${row.publication_types}` : null,
     row.classified_by_llm !== undefined ? `LLM: ${row.classified_by_llm}` : null,
     row.rules_functional !== undefined ? `Rules: ${row.rules_functional}` : null,
     row.verification_status ? `Verifier: ${row.verification_status}` : null,
+    row.adjudication_status ? `Adjudicator: ${row.adjudication_status}` : null,
     row.gene_match_quality ? `Gene match: ${row.gene_match_quality}` : null,
     row.review_recommendation ? `Review route: ${row.review_recommendation}` : null,
     row.total_evidence_sents ? `Evidence sentences: ${row.total_evidence_sents}` : null,
+    row.gene_linked_evidence_sents !== undefined ? `Gene-linked evidence sentences: ${row.gene_linked_evidence_sents}` : null,
     row.pmcid ? `PMCID: ${row.pmcid}` : null,
   ].filter(Boolean).join(' - ');
   if (row.verification_reasons) {
@@ -768,6 +779,10 @@ function buildEv(row, uid) {
   if (row.review_reasons) {
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review router reasons</div>` +
       String(row.review_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
+  }
+  if (row.adjudication_reasons) {
+    parts.push(`<div class="ev-lbl" style="margin-top:12px;">Adjudicator reasons</div>` +
+      String(row.adjudication_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
   }
   if (row.agent_trace) {
     try {
@@ -791,6 +806,9 @@ function buildEv(row, uid) {
       ['method_strength', 'Method strength'],
       ['context', 'Evidence context'],
       ['verifier', 'Skeptical verifier'],
+      ['search_relevance', 'Search relevance'],
+      ['evidence_retrieval', 'Evidence retrieval'],
+      ['gene_linked_evidence', 'Gene-linked evidence'],
     ];
     parts.push(`<div class="support-detail">${labels.map(([key, label]) => {
       const val = row.support_components[key];

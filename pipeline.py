@@ -18,6 +18,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from confidence import compute_confidence
 from evidence_agents import adjudicator_agent, review_router_agent, run_pre_scoring_agents, serialize_agent_trace
 from evidence_verifier import is_ambiguous_gene_symbol
+from paper_type import classify_paper_type
 
 # Entrez
 Entrez.email       = os.environ.get("ENTREZ_EMAIL", "your_email@example.com")
@@ -103,9 +104,9 @@ _GENE_ALIAS_CACHE: dict[str, list[str]] | None = None
 # Export columns for user-facing CSV
 EXPORT_COLS = [
     "gene", "pmid", "pubmed_link", "title", "journal", "year",
-    "cancer_type", "functional_study", "in_vitro", "in_vivo",
+    "cancer_type", "paper_type", "functional_study", "in_vitro", "in_vivo",
     "knockout", "knockdown", "shrna", "sirna", "crispr", "crispr_screen",
-    "confidence", "evidence_functional_study", "evidence_in_vitro",
+    "confidence", "best_evidence_quote", "evidence_functional_study", "evidence_in_vitro",
     "evidence_in_vivo", "evidence_crispr_screen", "overall_decision",
 ]
 
@@ -371,6 +372,15 @@ def pubmed_fetch_metadata(pmids: list[str]) -> dict:
                 except Exception:
                     year = ""
 
+                publication_types = []
+                try:
+                    for ptype in article.get("PublicationTypeList", []):
+                        text = str(ptype).strip()
+                        if text:
+                            publication_types.append(text)
+                except Exception:
+                    publication_types = []
+
                 doi = ""
                 try:
                     for idobj in art["PubmedData"]["ArticleIdList"]:
@@ -381,7 +391,8 @@ def pubmed_fetch_metadata(pmids: list[str]) -> dict:
                     pass
 
                 out[pmid] = dict(title=title, abstract=abstract,
-                                 journal=journal, year=year, doi=doi)
+                                 journal=journal, year=year, doi=doi,
+                                 publication_types="|".join(dict.fromkeys(publication_types)))
             except Exception:
                 continue
     return out
@@ -515,7 +526,9 @@ def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
     if not all_sents:
         return dict(evidence_perturbation=[], evidence_in_vitro=[],
                     evidence_in_vivo=[], evidence_crispr_screen=[],
-                    evidence_text="", total_evidence_sents=0)
+                    evidence_text="", total_evidence_sents=0,
+                    best_evidence_quote="", gene_linked_evidence_sents=0,
+                    evidence_retrieval_score=0.0)
 
     keep_idx = set()
     scored = []
@@ -541,21 +554,43 @@ def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
             kept.append(s)
             seen.add(s)
 
+    scored_by_sentence = {}
+    for score, i, detail in scored:
+        scored_by_sentence[all_sents[i]] = (score, detail)
+
+    direct_candidates = [
+        (score, sent, detail)
+        for sent in kept
+        for score, detail in [scored_by_sentence.get(sent, _sentence_evidence_score(gene, sent))]
+        if detail.get("gene") and (detail.get("perturbation") or detail.get("phenotype") or detail.get("model"))
+    ]
+    direct_candidates.sort(key=lambda x: x[0], reverse=True)
+    best_evidence_quote = direct_candidates[0][1] if direct_candidates else ""
+    gene_linked_evidence_sents = len({sent for _, sent, _ in direct_candidates})
+
     g_lower = gene.lower()
     ev_pert, ev_vitro, ev_vivo, ev_screen = [], [], [], []
     for s in kept:
         sl = s.lower()
-        if (any(p.search(s) for p in [PATTERNS["knockout"], PATTERNS["knockdown"], PATTERNS["crispr"]])
+        score, detail = scored_by_sentence.get(s, _sentence_evidence_score(gene, s))
+        directly_gene_linked = bool(detail.get("gene"))
+        gene_specific_rnai = (
+            re.search(rf"\bsh[-_\s]*{re.escape(g_lower)}\b", sl)
+            or re.search(rf"\bsi[-_\s]*{re.escape(g_lower)}\b", sl)
+            or re.search(rf"\bsg[-_\s]*{re.escape(g_lower)}\b", sl)
+        )
+        if ((directly_gene_linked and any(p.search(s) for p in [PATTERNS["knockout"], PATTERNS["knockdown"], PATTERNS["crispr"]]))
                 or re.search(rf"\bsh[-_\s]*{re.escape(g_lower)}\b", sl)
-                or re.search(rf"\bsi[-_\s]*{re.escape(g_lower)}\b", sl)):
+                or re.search(rf"\bsi[-_\s]*{re.escape(g_lower)}\b", sl)
+                or gene_specific_rnai):
             ev_pert.append(s)
-        if PATTERNS["in_vitro"].search(s) or any(w in sl for w in
+        if directly_gene_linked and (PATTERNS["in_vitro"].search(s) or any(w in sl for w in
                 ["growth", "proliferation", "viability", "apoptosis", "necrosis",
-                 "cell death", "organoid"]):
+                 "cell death", "organoid"])):
             ev_vitro.append(s)
-        if PATTERNS["in_vivo"].search(s) or any(w in sl for w in
+        if directly_gene_linked and (PATTERNS["in_vivo"].search(s) or any(w in sl for w in
                 ["xenograft", "tumor size", "tumour size", "tumor volume",
-                 "tumour volume", "tumor growth", "survival", "kaplan-meier"]):
+                 "tumour volume", "tumor growth", "survival", "kaplan-meier"])):
             ev_vivo.append(s)
         if PATTERNS["crispr_screen"].search(s):
             ev_screen.append(s)
@@ -601,6 +636,8 @@ def extract_evidence_pack(gene: str, abstract: str, fulltext: str,
         evidence_crispr_screen=ev_screen,
         evidence_text="\n".join(parts).strip(),
         total_evidence_sents=len(kept),
+        best_evidence_quote=best_evidence_quote,
+        gene_linked_evidence_sents=gene_linked_evidence_sents,
         evidence_retrieval_score=evidence_retrieval_score,
     )
 
@@ -882,6 +919,8 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         "verification_reasons":  verification["verification_reasons"],
         "evidence_quality_score": verification["evidence_quality_score"],
         "gene_match_quality":    verification["gene_match_quality"],
+        "adjudication_status":   adjudication["adjudication"],
+        "adjudication_reasons":  adjudication["adjudication_reasons"],
         "review_recommendation": route["review_recommendation"],
         "review_reasons":        route["review_reasons"],
         "agent_trace":           serialize_agent_trace(agent_trace),
@@ -1073,13 +1112,13 @@ def _build_overall_decision(gene: str, decision: dict,
             parts.append(f"Perturbation: {', '.join(methods)}.")
         if locations:
             parts.append(f"Tested {' and '.join(locations)}.")
-        parts.append(f"Confidence: {round(confidence * 100)}%.")
+        parts.append(f"Evidence support: {confidence:.2f}.")
         if reasoning:
             parts.append(f"LLM: {reasoning}")
         return " ".join(parts)
     else:
         parts = [f"NOT a functional study of {gene}."]
-        parts.append(f"Confidence: {round(confidence * 100)}%.")
+        parts.append(f"Evidence support: {confidence:.2f}.")
         if reasoning:
             parts.append(f"LLM: {reasoning}")
         elif not methods:
@@ -1171,6 +1210,13 @@ def analyze_gene(
         ev["pmcid"] = pmcid or ""
         ev["has_fulltext_context"] = bool(fulltext)
         ev["search_relevance_score"] = relevance_scores.get(str(pmid), 0.0)
+        ev["publication_types"] = m.get("publication_types", "")
+        ev["paper_type"] = classify_paper_type(
+            title=title,
+            abstract=abstract,
+            publication_types=m.get("publication_types", ""),
+            evidence=ev,
+        )
 
         decision = ensemble_classify(gene, title, abstract, ev["evidence_text"], ev)
 
@@ -1208,6 +1254,8 @@ def analyze_gene(
             "journal":     m.get("journal", ""),
             "year":        m.get("year",    ""),
             "cancer_type": cancer_type,
+            "publication_types": m.get("publication_types", ""),
+            "paper_type": ev.get("paper_type", "unknown"),
 
             # Store as booleans/floats for DB — export_to_df converts to YES/NO and %
             "functional_study": bool(decision.get("functional_study")),
@@ -1221,6 +1269,7 @@ def analyze_gene(
             "crispr_screen":    bool(decision.get("crispr_screen")),
 
             "confidence": confidence,  # raw float for DB queries
+            "best_evidence_quote":      ev.get("best_evidence_quote", ""),
 
             "evidence_functional_study": "|".join(ev.get("evidence_perturbation",  [])),
             "evidence_in_vitro":         "|".join(ev.get("evidence_in_vitro",      [])),
@@ -1253,12 +1302,15 @@ def analyze_gene(
             "search_relevance_score":     relevance_scores.get(str(pmid), 0.0),
             "evidence_retrieval_score":   ev.get("evidence_retrieval_score", 0.0),
             "gene_match_quality":         decision.get("gene_match_quality", ""),
+            "adjudication_status":         decision.get("adjudication_status", ""),
+            "adjudication_reasons":        decision.get("adjudication_reasons", ""),
             "review_recommendation":      decision.get("review_recommendation", ""),
             "review_reasons":             decision.get("review_reasons", ""),
             "agent_trace":                decision.get("agent_trace", ""),
             "impact_in_vitro":           "|".join(str(x) for x in (decision.get("impact_in_vitro") or [])),
             "impact_in_vivo":            "|".join(str(x) for x in (decision.get("impact_in_vivo")  or [])),
             "total_evidence_sents":      ev.get("total_evidence_sents", 0),
+            "gene_linked_evidence_sents": ev.get("gene_linked_evidence_sents", 0),
         }
 
         cache_set(gene, pmid, row)

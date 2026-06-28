@@ -16,6 +16,10 @@ classification trustworthiness.
   because important signals were coarse or missing.
 - Old database rows could be rescored, but not fully rebuilt with improved
   search/evidence logic unless the gene was processed again manually.
+- Paper type was only implied by title keywords and verifier reasons, so review
+  and prognosis/expression-only papers were not easy to separate in the UI.
+- Evidence snippets could include neighboring phenotype sentences that were
+  useful context but did not directly mention the target gene.
 
 ## Implemented Changes
 
@@ -52,6 +56,25 @@ gene/evidence support and routes weak or contradictory cases to human review.
 An adjudicator step now challenges internally inconsistent classifications, such
 as functional labels without strong verifier support or high scores with weak
 evidence.
+
+### Paper Type And Direct Evidence Signals
+
+The pipeline now stores a deterministic `paper_type` label and PubMed
+publication types. Likely review, clinical/prognostic, expression-association,
+and methods/dataset papers are penalized in the evidence-support score and shown
+in the website table.
+
+Evidence retrieval also stores a `best_evidence_quote` and
+`gene_linked_evidence_sents`. These fields help reviewers answer the practical
+question: "Where is the strongest sentence that actually links this gene to a
+functional experiment?"
+
+### More Diagnostic Evaluation
+
+`scripts/evaluate_gold_labels.py` now reports score-band accuracy and errors by
+paper type when a small human-labeled dataset is available. This helps the lab
+see whether false positives cluster in review-like, prognosis-only, or
+expression-only papers.
 
 ### Rebuild Workflow
 

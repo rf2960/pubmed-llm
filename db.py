@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS papers (
     year                      TEXT,
     doi                       TEXT,
     cancer_type               TEXT,
+    publication_types         TEXT,
+    paper_type                TEXT,
     functional_study          INTEGER,
     where_functional          TEXT,
     in_vitro                  INTEGER,
@@ -59,12 +61,16 @@ CREATE TABLE IF NOT EXISTS papers (
     gene_match_quality        TEXT,
     review_recommendation     TEXT,
     review_reasons            TEXT,
+    adjudication_status       TEXT,
+    adjudication_reasons      TEXT,
     agent_trace               TEXT,
+    best_evidence_quote       TEXT,
     evidence_perturbation     TEXT,
     evidence_in_vitro         TEXT,
     evidence_in_vivo          TEXT,
     evidence_crispr_screen    TEXT,
     total_evidence_sents      INTEGER,
+    gene_linked_evidence_sents INTEGER,
     review_status             TEXT DEFAULT 'unreviewed',
     review_label              TEXT,
     review_notes              TEXT,
@@ -112,6 +118,7 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_papers_gene       ON papers(gene);",
     "CREATE INDEX IF NOT EXISTS idx_papers_functional ON papers(functional_study);",
     "CREATE INDEX IF NOT EXISTS idx_papers_cancer     ON papers(cancer_type);",
+    "CREATE INDEX IF NOT EXISTS idx_papers_paper_type ON papers(paper_type);",
     "CREATE INDEX IF NOT EXISTS idx_papers_confidence ON papers(confidence);",
     "CREATE INDEX IF NOT EXISTS idx_papers_review     ON papers(review_status);",
     "CREATE INDEX IF NOT EXISTS idx_queue_status      ON request_queue(status);",
@@ -129,7 +136,13 @@ _PAPER_MIGRATIONS = {
     "evidence_quality_score": "REAL",
     "search_relevance_score": "REAL",
     "evidence_retrieval_score": "REAL",
+    "publication_types": "TEXT",
+    "paper_type": "TEXT",
+    "best_evidence_quote": "TEXT",
+    "gene_linked_evidence_sents": "INTEGER",
     "gene_match_quality": "TEXT",
+    "adjudication_status": "TEXT",
+    "adjudication_reasons": "TEXT",
     "review_recommendation": "TEXT",
     "review_reasons": "TEXT",
     "agent_trace": "TEXT",
@@ -194,7 +207,12 @@ def upsert_paper(row: dict, db_path: str = None):
 def upsert_papers_bulk(rows: list, db_path: str = None):
     if not rows:
         return
-    cols  = [c for c in rows[0].keys() if c != "processed_at"]
+    cols_seen = []
+    for row in rows:
+        for key in row.keys():
+            if key != "processed_at" and key not in cols_seen:
+                cols_seen.append(key)
+    cols  = cols_seen
     ph    = ", ".join("?" * len(cols))
     cn    = ", ".join(cols)
     update_cols = [c for c in cols if c not in ("gene", "pmid")]
@@ -285,6 +303,17 @@ def _review_signals(row: dict) -> list:
         signals.append(recommendation)
     if row.get("gene_match_quality") == "weak":
         signals.append("weak_gene_match")
+    if str(row.get("adjudication_status") or "").lower() == "challenge":
+        signals.append("adjudicator_challenge")
+    if str(row.get("paper_type") or "").lower() in {
+        "review",
+        "clinical_prognostic",
+        "expression_association",
+        "methods_or_dataset",
+    }:
+        signals.append("negative_paper_type")
+    if int(row.get("gene_linked_evidence_sents") or 0) == 0:
+        signals.append("no_gene_linked_evidence")
     if 0.45 <= conf <= 0.70:
         signals.append("borderline_confidence")
     if functional and not has_perturbation:
@@ -306,6 +335,7 @@ def _review_priority(row: dict) -> str:
         or "functional_without_perturbation_evidence" in signals
         or "verifier_not_supported" in signals
         or "verifier_weak_support" in signals
+        or "adjudicator_challenge" in signals
         or "high_priority_review" in signals
     ):
         return "high"
@@ -402,6 +432,7 @@ def _paper_order_clause(genes_upper: list, paper_sort: str = "support_desc") -> 
         "title_asc": "title COLLATE NOCASE ASC, year DESC, confidence DESC",
         "title_desc": "title COLLATE NOCASE DESC, year DESC, confidence DESC",
         "functional_desc": "functional_study DESC, confidence DESC, year DESC",
+        "paper_type": "COALESCE(paper_type, 'unknown') COLLATE NOCASE ASC, confidence DESC, year DESC",
     }
     paper_order = sort_map.get(paper_sort, sort_map["support_desc"])
     return f"{gene_order}, {paper_order}", list(genes_upper)
@@ -627,10 +658,11 @@ def export_to_df(
         if col in df.columns:
             df[col] = df[col].apply(lambda x: "YES" if x else "NO")
 
-    # Convert confidence float to percentage string
+    # Keep evidence support as a 0-1 decimal. It is a heuristic support score,
+    # not a calibrated probability or percentage.
     if "confidence" in df.columns:
         df["confidence"] = df["confidence"].apply(
-            lambda x: f"{round(float(x)*100)}%" if pd.notna(x) else "0%"
+            lambda x: round(float(x), 3) if pd.notna(x) else 0.0
         )
 
     # Rename columns for clean export
@@ -642,12 +674,14 @@ def export_to_df(
     # Select and order export columns
     export_cols = [
         "gene", "pmid", "pubmed_link", "title", "journal", "year",
-        "cancer_type", "functional_study", "in_vitro", "in_vivo",
+        "cancer_type", "publication_types", "paper_type", "functional_study", "in_vitro", "in_vivo",
         "knockout", "knockdown", "shrna", "sirna", "crispr", "crispr_screen",
-        "confidence", "evidence_functional_study", "evidence_in_vitro",
+        "confidence", "best_evidence_quote", "evidence_functional_study", "evidence_in_vitro",
         "evidence_in_vivo", "evidence_crispr_screen", "overall_decision",
         "verification_status", "verification_reasons", "evidence_quality_score",
-        "gene_match_quality", "review_recommendation", "review_reasons",
+        "search_relevance_score", "evidence_retrieval_score", "gene_linked_evidence_sents",
+        "gene_match_quality", "adjudication_status", "adjudication_reasons",
+        "review_recommendation", "review_reasons",
         "review_status", "review_label", "review_notes", "reviewed_by", "reviewed_at",
     ]
     return df[[c for c in export_cols if c in df.columns]]

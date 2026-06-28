@@ -26,8 +26,13 @@ The score is computed in `confidence.py` from normalized components:
 - **Method strength**: stronger perturbation methods receive more support.
 - **Rule/LLM agreement**: disagreement lowers confidence and routes review.
 - **Gene specificity**: target gene appears in evidence snippets.
+- **Gene-linked evidence count**: extracted sentences directly connect the
+  target gene to perturbation/model/phenotype evidence.
 - **Context strength**: full-text evidence helps, abstract-only evidence is
   weaker.
+- **Paper type**: review, clinical/prognostic, expression-association, and
+  methods/dataset-like papers are penalized unless direct functional evidence is
+  present.
 - **Verifier score**: skeptical verifier support or penalties.
 - **Adjudication/review routing**: internally inconsistent rows are routed for
   human review instead of being treated as routine.
@@ -39,6 +44,9 @@ The score is computed in `confidence.py` from normalized components:
 Earlier scoring used coarser caps and default values, so many rows landed on
 similar values such as `0.65` or `0.78`. The newer rubric uses more continuous
 evidence counts, search relevance, retrieval strength, and verifier signals.
+The latest version also uses direct gene-linked evidence counts and paper type,
+which should reduce repeated scores caused by rows sharing the same generic
+rule/LLM pattern.
 
 ## Updating Old Rows
 
@@ -53,6 +61,11 @@ python -u scripts/recompute_confidence.py \
 This does **not** rerun PubMed search or BioMistral. To rebuild old rows with
 the improved search and evidence retrieval algorithm, use the reprocess workflow
 in `docs/reprocess_workflow.md`.
+
+`recompute_confidence.py` can backfill paper type and a best available evidence
+quote from stored evidence snippets, but it cannot recover full-text snippets
+that were not stored originally. Use `scripts/reprocess_papers.py --ignore-cache`
+when the lab wants old rows fully rebuilt with the newest evidence retrieval.
 
 ## Calibration Plan
 

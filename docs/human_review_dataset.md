@@ -53,7 +53,8 @@ python -u scripts/evaluate_gold_labels.py \
   --write-disagreements outputs/gold_label_disagreements.csv
 ```
 
-The script reports precision, recall, F1, accuracy, missing rows, and writes
+The script reports precision, recall, F1, accuracy, missing rows, score-band
+accuracy, and errors grouped by `paper_type`. If requested, it writes
 false-positive / false-negative examples.
 
 ## Suggested Labeling Strategy

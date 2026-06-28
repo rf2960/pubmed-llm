@@ -12,6 +12,7 @@ gene
   -> PubMed metadata / abstract retrieval
   -> optional PMC full-text retrieval
   -> evidence-focused sentence retrieval
+  -> deterministic paper-type classifier
   -> rules classifier
   -> BioMistral structured classifier
   -> evidence verifier / adjudicator agents
@@ -65,6 +66,35 @@ abstract and available PMC full text. It prioritizes sentences that mention:
 Neighboring sentences are retained for context. The classifier should judge the
 paper from these evidence snippets, not only from the title.
 
+The extractor now also records:
+
+- `best_evidence_quote`: the strongest sentence that directly links the target
+  gene to experimental evidence.
+- `gene_linked_evidence_sents`: how many extracted evidence sentences directly
+  mention the target gene and an experimental signal.
+- `evidence_retrieval_score`: how strong the best retrieved evidence sentence
+  was.
+
+Phenotype evidence is only counted as in vitro/in vivo evidence when the
+sentence is directly linked to the queried gene. This reduces false positives
+where an abstract mentions a phenotype for a different target.
+
+## Paper Type
+
+`paper_type.py` assigns a lightweight, deterministic triage label:
+
+- `functional_experiment`
+- `functional_screen`
+- `review`
+- `clinical_prognostic`
+- `expression_association`
+- `methods_or_dataset`
+- `unknown`
+
+This is not a formal publication-type ontology. It is a practical review signal
+used to penalize likely review/prognosis/expression-only papers and to make the
+website table easier to scan.
+
 ## Classification
 
 The rules classifier requires direct gene perturbation plus in vitro or in vivo
@@ -81,6 +111,8 @@ The evidence agent workflow checks:
 - whether rules and BioMistral agree
 - whether the assigned label is actually supported
 - whether a high-confidence label is internally consistent
+- whether the paper type conflicts with a functional label
+- whether direct gene-linked evidence is missing
 - whether the row should be routed to human review
 
 The verifier is deterministic by default so the workflow stays affordable and

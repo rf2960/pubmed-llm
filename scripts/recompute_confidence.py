@@ -33,6 +33,7 @@ def main() -> int:
 
     from confidence import compute_confidence_from_db_row
     from evidence_agents import adjudicator_agent, review_router_agent, run_pre_scoring_agents, serialize_agent_trace
+    from paper_type import classify_paper_type
 
     logging.info("Log file: %s", log_file)
     logging.info("DB path: %s", args.db_path)
@@ -58,6 +59,9 @@ def main() -> int:
                verification_status, verification_reasons,
                evidence_quality_score, search_relevance_score,
                evidence_retrieval_score, gene_match_quality,
+               publication_types, paper_type, best_evidence_quote,
+               gene_linked_evidence_sents, adjudication_status,
+               adjudication_reasons,
                review_recommendation, review_reasons, agent_trace
         FROM papers
         {clause}
@@ -99,7 +103,28 @@ def main() -> int:
             "pmcid": row.get("pmcid"),
             "search_relevance_score": row.get("search_relevance_score"),
             "evidence_retrieval_score": row.get("evidence_retrieval_score"),
+            "publication_types": row.get("publication_types"),
         }
+        evidence_parts = []
+        for key in ("evidence_perturbation", "evidence_in_vitro", "evidence_in_vivo", "evidence_crispr_screen"):
+            evidence_parts.extend(x.strip() for x in str(row.get(key) or "").split("|") if x.strip())
+        gene = row.get("gene", "")
+        gene_re = f" {gene.lower()} "
+        linked = [s for s in evidence_parts if gene_re in f" {s.lower()} "]
+        paper_type = row.get("paper_type") or classify_paper_type(
+            title=row.get("title", ""),
+            abstract="",
+            publication_types=row.get("publication_types", ""),
+            evidence=ev,
+        )
+        best_quote = row.get("best_evidence_quote") or (linked[0] if linked else (evidence_parts[0] if evidence_parts else ""))
+        gene_linked_count = int(row.get("gene_linked_evidence_sents") or len(set(linked)))
+        ev["paper_type"] = paper_type
+        ev["best_evidence_quote"] = best_quote
+        ev["gene_linked_evidence_sents"] = gene_linked_count
+        row["paper_type"] = paper_type
+        row["best_evidence_quote"] = best_quote
+        row["gene_linked_evidence_sents"] = gene_linked_count
         agent_result = run_pre_scoring_agents(
             row.get("gene", ""),
             row.get("title", ""),
@@ -137,6 +162,11 @@ def main() -> int:
             verification["verification_reasons"],
             verification["evidence_quality_score"],
             verification["gene_match_quality"],
+            paper_type,
+            best_quote,
+            gene_linked_count,
+            adjudication["adjudication"],
+            adjudication["adjudication_reasons"],
             route["review_recommendation"],
             route["review_reasons"],
             serialize_agent_trace(trace),
@@ -164,6 +194,11 @@ def main() -> int:
                    verification_reasons=?,
                    evidence_quality_score=?,
                    gene_match_quality=?,
+                   paper_type=?,
+                   best_evidence_quote=?,
+                   gene_linked_evidence_sents=?,
+                   adjudication_status=?,
+                   adjudication_reasons=?,
                    review_recommendation=?,
                    review_reasons=?,
                    agent_trace=?

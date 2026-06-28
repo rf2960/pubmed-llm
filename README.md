@@ -38,9 +38,11 @@ The current version combines rule-based evidence detection with an LLM classifie
 - in vitro / in vivo evidence signals
 - perturbation signals such as knockout, knockdown, siRNA, shRNA, CRISPR, and CRISPR screen
 - extracted evidence snippets
+- best gene-linked evidence quote and direct gene-linked evidence count
+- deterministic paper-type label for review/prognosis/expression/methods triage
 - search-relevance and evidence-retrieval diagnostics
 - LLM/rule disagreement diagnostics
-- evidence-agent verification status, review recommendation, and agent trace
+- evidence-agent verification status, adjudicator result, review recommendation, and agent trace
 - an evidence-support confidence score
 - human review status, label, reviewer notes, and reviewer timestamp
 
@@ -112,6 +114,7 @@ processes pending queue requests first, then refreshes existing genes whose
 | `confidence.py` | Shared evidence-support scoring rubric used by both new processing and score recomputation. |
 | `evidence_agents.py` | Role-specific evidence agents: evidence finder, classifier consensus, skeptical verifier, adjudicator, and review router. |
 | `evidence_verifier.py` | Deterministic verifier used by the agent workflow and confidence scoring. |
+| `paper_type.py` | Lightweight deterministic paper-type classifier for review/prognosis/expression/methods triage. |
 | `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |
 | `scripts/check_queue_status.py` | Prints DB and queue counts. |
 | `scripts/process_queue.py` | Main maintenance worker for pending requests, failed requests, and stale existing-gene refresh. |
@@ -301,7 +304,7 @@ Full guides:
 - The confidence score is evidence-support, not a validated probability. It now
   includes a deterministic skeptical verifier that checks whether the extracted
   snippets support direct gene perturbation, phenotype evidence, gene-specific
-  matching, and rule/LLM agreement.
+  matching, paper type, direct gene-linked evidence, and rule/LLM agreement.
 - The system is not guaranteed to retrieve every relevant paper, although the
   search now prioritizes evidence-focused candidates before the broad fallback.
 - Human review labels are stored in SQLite and require careful DB sync/backup discipline.

@@ -6,6 +6,7 @@ import argparse
 import csv
 import logging
 import sqlite3
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from common import add_common_args, configure_db_runtime, configure_logging
@@ -67,7 +68,8 @@ def fetch_predictions(db_path: str, label_rows: list[dict]) -> dict[tuple[str, s
             row = conn.execute(
                 """SELECT gene, pmid, title, functional_study, cancer_type,
                           where_functional, confidence, verification_status,
-                          review_recommendation
+                          review_recommendation, paper_type, gene_match_quality,
+                          adjudication_status, gene_linked_evidence_sents
                    FROM papers
                    WHERE gene=? AND pmid=?""",
                 (gene, pmid),
@@ -89,6 +91,8 @@ def main() -> int:
     preds = fetch_predictions(args.db_path, labels)
     tp = fp = tn = fn = missing = 0
     disagreements = []
+    band_counts = defaultdict(lambda: {"n": 0, "correct": 0})
+    error_by_type = Counter()
 
     for label in labels:
         key = (label["gene"].upper().strip(), str(label["pmid"]).strip())
@@ -99,14 +103,21 @@ def main() -> int:
             disagreements.append({**label, "db_status": "missing"})
             continue
         model = bool(pred.get("functional_study"))
+        conf = float(pred.get("confidence") or 0.0)
+        band = "strong" if conf >= 0.80 else "moderate" if conf >= 0.60 else "weak"
+        band_counts[band]["n"] += 1
+        if model == human:
+            band_counts[band]["correct"] += 1
         if model and human:
             tp += 1
         elif model and not human:
             fp += 1
             disagreements.append({**label, **pred, "db_status": "false_positive"})
+            error_by_type[str(pred.get("paper_type") or "unknown")] += 1
         elif not model and human:
             fn += 1
             disagreements.append({**label, **pred, "db_status": "false_negative"})
+            error_by_type[str(pred.get("paper_type") or "unknown")] += 1
         else:
             tn += 1
 
@@ -118,6 +129,13 @@ def main() -> int:
     logging.info("Evaluated labels: %s; missing in DB: %s", len(labels), missing)
     logging.info("TP=%s FP=%s TN=%s FN=%s", tp, fp, tn, fn)
     logging.info("Precision=%.3f Recall=%.3f F1=%.3f Accuracy=%.3f", precision, recall, f1, accuracy)
+    for band in ("strong", "moderate", "weak"):
+        n = band_counts[band]["n"]
+        correct = band_counts[band]["correct"]
+        if n:
+            logging.info("Band %s: n=%s accuracy=%.3f", band, n, correct / n)
+    if error_by_type:
+        logging.info("Errors by paper_type: %s", dict(error_by_type.most_common()))
 
     if args.write_disagreements:
         path = Path(args.write_disagreements)

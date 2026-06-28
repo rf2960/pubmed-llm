@@ -7,7 +7,8 @@ BioMistral classifier:
 1. Evidence Finder Agent: summarizes extracted evidence coverage.
 2. Classifier Consensus Agent: records rules/LLM agreement.
 3. Skeptical Verifier Agent: tries to disprove the assigned label.
-4. Review Router Agent: decides whether a human should inspect the paper.
+4. Adjudicator Agent: challenges high-risk or internally inconsistent labels.
+5. Review Router Agent: decides whether a human should inspect the paper.
 
 The design keeps runtime low and avoids adding a second LLM pass by default.
 """
@@ -68,8 +69,10 @@ def evidence_finder_agent(gene: str, ev: dict) -> dict:
         "metrics": {
             **categories,
             "total_evidence_sents": int(ev.get("total_evidence_sents", 0) or 0),
+            "gene_linked_evidence_sents": int(ev.get("gene_linked_evidence_sents", 0) or 0),
             "gene_mentions_in_evidence": _gene_mentions(gene, all_text),
             "has_fulltext_context": bool(ev.get("has_fulltext_context") or ev.get("pmcid")),
+            "paper_type": ev.get("paper_type") or "unknown",
         },
     }
 

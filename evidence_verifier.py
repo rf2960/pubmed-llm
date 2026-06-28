@@ -13,6 +13,8 @@ import math
 import re
 from typing import Any
 
+from paper_type import paper_type_is_negative_evidence
+
 
 AMBIGUOUS_GENE_SYMBOLS = {
     # Very short or common-word symbols often retrieve papers where the symbol
@@ -112,6 +114,8 @@ def verify_evidence(
 
     evidence_text = _evidence_text(ev)
     combined_text = "\n".join([title or "", abstract or "", evidence_text])
+    paper_type = str(ev.get("paper_type") or "").strip().lower()
+    publication_types = str(ev.get("publication_types") or "").lower()
     gene_re = _gene_regex(gene)
     gene_mentions_evidence = len(gene_re.findall(evidence_text or ""))
     gene_mentions_total = len(gene_re.findall(combined_text or ""))
@@ -140,8 +144,13 @@ def verify_evidence(
     )
     functional = _as_bool(primary.get("functional_study"))
     ambiguous_gene = is_ambiguous_gene_symbol(gene)
-    review_like = any(term in (title or "").lower() for term in REVIEW_TERMS)
-    association_language = any(term in combined_text.lower() for term in EXPRESSION_OR_ASSOCIATION_TERMS)
+    review_like = (
+        paper_type == "review"
+        or any(term in (title or "").lower() for term in REVIEW_TERMS)
+        or any(term in publication_types for term in REVIEW_TERMS)
+    )
+    association_language = paper_type in {"expression_association", "clinical_prognostic"} or any(term in combined_text.lower() for term in EXPRESSION_OR_ASSOCIATION_TERMS)
+    negative_paper_type = paper_type_is_negative_evidence(paper_type)
     evidence_count = int(ev.get("total_evidence_sents", 0) or 0)
 
     reasons: list[str] = []
@@ -169,11 +178,13 @@ def verify_evidence(
         reasons.append("review-like title")
     if association_language and not direct_gene_perturbation:
         reasons.append("association/expression language without perturbation")
+    if negative_paper_type and paper_type:
+        reasons.append(f"paper type looks like {paper_type.replace('_', ' ')}")
 
     if functional:
         if not direct_gene_perturbation or not phenotype_hit:
             status = "not_supported" if (not direct_gene_perturbation and not phenotype_hit) else "weak_support"
-        elif llm_rules_disagree or review_like or (ambiguous_gene and gene_mentions_evidence < 2):
+        elif llm_rules_disagree or review_like or negative_paper_type or (ambiguous_gene and gene_mentions_evidence < 2):
             status = "needs_review"
         else:
             status = "supported"
@@ -197,6 +208,7 @@ def verify_evidence(
         + (0.07 if llm_result is not None else 0.02)
         - (0.12 if llm_rules_disagree else 0.0)
         - (0.10 if review_like else 0.0)
+        - (0.08 if negative_paper_type else 0.0)
         - (0.10 if ambiguous_gene and gene_mentions_evidence < 2 else 0.0)
     )
 
@@ -236,6 +248,8 @@ def verify_db_row(row: dict) -> dict:
         "evidence_in_vivo": row.get("evidence_in_vivo"),
         "evidence_crispr_screen": row.get("evidence_crispr_screen"),
         "total_evidence_sents": row.get("total_evidence_sents"),
+        "paper_type": row.get("paper_type"),
+        "publication_types": row.get("publication_types"),
     }
     return verify_evidence(
         row.get("gene", ""),

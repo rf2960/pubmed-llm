@@ -5,6 +5,16 @@ Use this workflow when algorithm changes should affect existing database rows.
 stored evidence. It does not rerun PubMed search, evidence retrieval, or
 BioMistral.
 
+After the paper-type / best-evidence update, recompute can also backfill:
+
+- `paper_type`
+- `best_evidence_quote` from already stored snippets
+- `gene_linked_evidence_sents`
+- `adjudication_status` / `adjudication_reasons`
+
+However, it still cannot recover better snippets from PubMed/PMC. Use rebuild
+commands below when you want the improved evidence retrieval to affect old rows.
+
 ## Dry Run
 
 Preview a gene rebuild:
@@ -45,6 +55,19 @@ python -u scripts/reprocess_papers.py \
 
 This is useful when the lab wants old rows reclassified without changing which
 PMIDs are currently stored for that gene.
+
+## Recompute Evidence-Support Fields Only
+
+```bash
+python -u scripts/recompute_confidence.py \
+  --db-path gene_function_lab/gene_function_lab.db \
+  --gene ADAM10 \
+  --upload
+```
+
+Use this when the lab wants the new support rubric, paper-type labels, and
+review routing fields applied to existing stored snippets without rerunning the
+slow BioMistral worker.
 
 ## Rebuild Selected PMIDs
 

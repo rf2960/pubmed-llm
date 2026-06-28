@@ -21,6 +21,8 @@ import math
 import re
 from typing import Any
 
+from paper_type import paper_type_is_negative_evidence
+
 
 EXPRESSION_WORDS = (
     "expression", "mrna level", "protein level", "upregulated",
@@ -80,6 +82,8 @@ def _evidence_depth_score(n_sents: int, n_categories: int) -> float:
 
 def _text_flags(title: str, abstract: str, ev: dict) -> dict[str, bool]:
     text = f"{title or ''}\n{abstract or ''}".lower()
+    paper_type = str(ev.get("paper_type") or "").strip().lower()
+    publication_types = str(ev.get("publication_types") or "").lower()
     evidence_text = "\n".join(
         s for key in (
             "evidence_perturbation",
@@ -93,11 +97,14 @@ def _text_flags(title: str, abstract: str, ev: dict) -> dict[str, bool]:
 
     return {
         "expression_only": (
-            any(w in combined for w in EXPRESSION_WORDS)
+            (paper_type == "expression_association"
+             or any(w in combined for w in EXPRESSION_WORDS))
             and not _split_evidence(ev.get("evidence_perturbation"))
         ),
-        "correlation_only": any(w in combined for w in CORRELATION_WORDS),
-        "review_paper": any(w in (title or "").lower() for w in REVIEW_WORDS),
+        "correlation_only": paper_type == "clinical_prognostic" or any(w in combined for w in CORRELATION_WORDS),
+        "review_paper": paper_type == "review" or any(w in (title or "").lower() for w in REVIEW_WORDS) or any(w in publication_types for w in REVIEW_WORDS),
+        "methods_or_dataset": paper_type == "methods_or_dataset",
+        "negative_paper_type": paper_type_is_negative_evidence(paper_type),
     }
 
 
@@ -170,6 +177,7 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
     phenotype_score = min(1.0, phenotype_score)
 
     n_evidence_sents = int(ev.get("total_evidence_sents", 0) or 0)
+    gene_linked_evidence_sents = int(ev.get("gene_linked_evidence_sents", 0) or 0)
     evidence_categories = sum(bool(x) for x in [evidence_pert, evidence_vitro, evidence_vivo, evidence_screen])
     depth_score = _evidence_depth_score(n_evidence_sents, evidence_categories)
 
@@ -198,7 +206,10 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
         sum(len(gene_pattern.findall(s.lower())) for s in evidence_texts)
         if gene_pattern else 0
     )
-    mention_score = _bounded_count_score(gene_mentions, 3.0)
+    mention_score = max(
+        _bounded_count_score(gene_mentions, 3.0),
+        0.85 * _bounded_count_score(gene_linked_evidence_sents, 2.0),
+    )
     if evidence_pert:
         gene_specificity = 0.68 + 0.24 * mention_score + 0.08 * min(1.0, method_count / 2.0)
     elif method_count:
@@ -254,6 +265,7 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
             (0.35 if text_flags["expression_only"] else 0.0)
             + (0.35 if text_flags["correlation_only"] else 0.0)
             + (0.20 if text_flags["review_paper"] else 0.0)
+            + (0.20 if text_flags["methods_or_dataset"] else 0.0)
             + (0.20 if n_evidence_sents == 0 else 0.0),
         ),
         "in_vitro": in_vitro,
@@ -263,8 +275,10 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
         "n_evidence_sents": n_evidence_sents,
         "evidence_categories": evidence_categories,
         "gene_mentions": gene_mentions,
+        "gene_linked_evidence_sents": gene_linked_evidence_sents,
         "evidence_chars": evidence_chars,
         "has_fulltext_context": has_fulltext_context,
+        "paper_type": str(ev.get("paper_type") or "").strip().lower(),
         **text_flags,
     }
 
@@ -298,6 +312,10 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         conf_functional -= 0.12
     if components["review_paper"]:
         conf_functional -= 0.10
+    if components["methods_or_dataset"]:
+        conf_functional -= 0.08
+    if components["gene_linked_evidence_sents"] == 0:
+        conf_functional -= 0.08
     if components["n_evidence_sents"] == 0:
         conf_functional -= 0.18
 
@@ -351,6 +369,8 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "evidence_verifier_score": round(components["verifier_score"], 2),
         "search_relevance_score": round(components["search_relevance_score"], 2),
         "evidence_retrieval_score": round(components["evidence_retrieval_score"], 2),
+        "gene_linked_evidence_sents": components["gene_linked_evidence_sents"],
+        "paper_type": components["paper_type"],
         "strong_method_score": round(components["method_strength"], 2),
         "in_vitro_phenotype": components["in_vitro"],
         "in_vivo_phenotype": components["in_vivo"],
@@ -360,7 +380,10 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "expression_only": components["expression_only"],
         "correlation_only": components["correlation_only"],
         "review_paper": components["review_paper"],
+        "methods_or_dataset": components["methods_or_dataset"],
+        "negative_paper_type": components["negative_paper_type"],
         "no_evidence_sents": components["n_evidence_sents"] == 0,
+        "no_gene_linked_evidence_sents": components["gene_linked_evidence_sents"] == 0,
         "llm_rules_disagree": components["disagreement"],
         "rules_only": components["rules_only"],
         "verification_status": components["verification_status"],
@@ -406,6 +429,9 @@ def compute_confidence_from_db_row(row: dict) -> tuple[float, float, float]:
         "evidence_quality_score": row.get("evidence_quality_score"),
         "search_relevance_score": row.get("search_relevance_score"),
         "evidence_retrieval_score": row.get("evidence_retrieval_score"),
+        "gene_linked_evidence_sents": row.get("gene_linked_evidence_sents"),
+        "paper_type": row.get("paper_type"),
+        "publication_types": row.get("publication_types"),
         "gene_match_quality": row.get("gene_match_quality"),
     }
     conf_func, conf_nonfunc, _, _ = compute_confidence(
@@ -447,6 +473,9 @@ def explain_confidence_from_db_row(row: dict) -> dict:
         "evidence_quality_score": row.get("evidence_quality_score"),
         "search_relevance_score": row.get("search_relevance_score"),
         "evidence_retrieval_score": row.get("evidence_retrieval_score"),
+        "gene_linked_evidence_sents": row.get("gene_linked_evidence_sents"),
+        "paper_type": row.get("paper_type"),
+        "publication_types": row.get("publication_types"),
         "gene_match_quality": row.get("gene_match_quality"),
     }
     c = _support_components(row.get("gene", ""), llm_result, rules_result, ev, row.get("title", ""), "")
@@ -484,6 +513,10 @@ def explain_confidence_from_db_row(row: dict) -> dict:
         if c["correlation_only"]:
             weak.append("correlation/biomarker language")
         reasons.append("penalty: " + ", ".join(weak))
+    if c["methods_or_dataset"]:
+        reasons.append("penalty: methods/dataset-like paper")
+    if c["gene_linked_evidence_sents"] == 0:
+        reasons.append("no sentence directly links gene with experimental evidence")
 
     if c["verification_status"] in {"needs_review", "weak_support", "not_supported"}:
         reasons.append(f"verifier status: {c['verification_status'].replace('_', ' ')}")
@@ -504,6 +537,7 @@ def explain_confidence_from_db_row(row: dict) -> dict:
             "verifier": round(c["verifier_score"], 2),
             "search_relevance": round(c["search_relevance_score"], 2),
             "evidence_retrieval": round(c["evidence_retrieval_score"], 2),
+            "gene_linked_evidence": round(min(1.0, c["gene_linked_evidence_sents"] / 4.0), 2),
         },
         "reasons": reasons,
     }
