@@ -32,6 +32,22 @@ HF_MODEL   = "BioMistral/BioMistral-7B"
 USE_LLM    = True
 QUANTIZE   = "8bit"
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+# Optional second-pass LLM verifier. It is gated so Colab does not pay an
+# extra generation call for every paper.
+USE_AGENTIC_VERIFIER = _env_bool("USE_AGENTIC_VERIFIER", True)
+AGENTIC_MODE = os.environ.get("AGENTIC_MODE", "borderline").strip().lower()
+MAX_VERIFIER_CALLS = int(os.environ.get("MAX_VERIFIER_CALLS", "8"))
+VERIFIER_ONLY_BORDERLINE = _env_bool("VERIFIER_ONLY_BORDERLINE", True)
+_VERIFIER_STATE = {"calls": 0}
+
 # Cache
 GDRIVE_CACHE = os.environ.get(
     "GDRIVE_CACHE",
@@ -857,6 +873,175 @@ JSON:
     return _postprocess_llm_json(data)
 
 
+VERIFIER_JSON_SCHEMA = """
+{
+  "verifier_decision": "support|challenge|unclear",
+  "target_gene_directly_studied": true,
+  "direct_gene_perturbation": true,
+  "phenotype_evidence": true,
+  "paper_type": "functional_experiment|expression_only|prognosis_only|review|methods|unclear",
+  "evidence_quote": "short exact supporting quote or empty string",
+  "reason": "one sentence explaining the decision",
+  "needs_review": true
+}
+"""
+
+
+def _normalize_verifier_json(data: dict | None) -> Optional[dict]:
+    if not isinstance(data, dict):
+        return None
+
+    def b(x):
+        if isinstance(x, bool):
+            return x
+        return str(x).strip().lower() in {"1", "true", "yes", "y"}
+
+    decision = str(data.get("verifier_decision") or "unclear").strip().lower()
+    if decision not in {"support", "challenge", "unclear"}:
+        decision = "unclear"
+    paper_type = str(data.get("paper_type") or "unclear").strip().lower()
+    if paper_type not in {
+        "functional_experiment", "expression_only", "prognosis_only",
+        "review", "methods", "unclear",
+    }:
+        paper_type = "unclear"
+
+    return {
+        "verifier_decision": decision,
+        "target_gene_directly_studied": b(data.get("target_gene_directly_studied")),
+        "direct_gene_perturbation": b(data.get("direct_gene_perturbation")),
+        "phenotype_evidence": b(data.get("phenotype_evidence")),
+        "paper_type": paper_type,
+        "evidence_quote": str(data.get("evidence_quote") or "").strip()[:500],
+        "reason": str(data.get("reason") or "").strip()[:500],
+        "needs_review": b(data.get("needs_review")) or decision in {"challenge", "unclear"},
+    }
+
+
+def _should_run_agentic_verifier(
+    gene: str,
+    primary: dict,
+    llm_result: dict | None,
+    llm_rules_disagree: bool,
+    verification: dict,
+    confidence: float,
+    ev: dict,
+) -> bool:
+    """Gate the second LLM verifier to high-value cases only."""
+    if not USE_AGENTIC_VERIFIER or AGENTIC_MODE in {"off", "disabled", "none"}:
+        return False
+    if llm_result is None:
+        return False
+    if _VERIFIER_STATE["calls"] >= MAX_VERIFIER_CALLS:
+        return False
+
+    functional = bool(primary.get("functional_study"))
+    status = str(verification.get("verification_status") or "").lower()
+    weak_verifier = status in {"needs_review", "weak_support", "not_supported"}
+    borderline = 0.45 <= float(confidence or 0) <= 0.76
+    high_score_weak_evidence = (
+        float(confidence or 0) >= 0.82
+        and (
+            float(verification.get("evidence_quality_score") or 0) < 0.66
+            or int(ev.get("gene_linked_evidence_sents", 0) or 0) < 1
+        )
+    )
+    ambiguous = is_ambiguous_gene_symbol(gene)
+
+    if AGENTIC_MODE == "all":
+        return True
+    if AGENTIC_MODE == "functional":
+        return functional or llm_rules_disagree
+
+    # Default "borderline" mode.
+    trigger = (
+        functional
+        or borderline
+        or llm_rules_disagree
+        or weak_verifier
+        or high_score_weak_evidence
+        or ambiguous
+    )
+    if VERIFIER_ONLY_BORDERLINE:
+        trigger = trigger and (
+            borderline
+            or llm_rules_disagree
+            or weak_verifier
+            or high_score_weak_evidence
+            or (functional and status != "supported")
+            or ambiguous
+        )
+    return trigger
+
+
+@torch.inference_mode()
+def run_llm_skeptical_verifier(
+    gene: str,
+    title: str,
+    abstract: str,
+    evidence_text: str,
+    primary: dict,
+    rules_result: dict,
+    llm_result: dict | None,
+    verification: dict,
+    confidence: float,
+    max_new_tokens: int = 260,
+) -> Optional[dict]:
+    """Ask BioMistral to challenge the current classification for one paper.
+
+    This is a verifier, not the primary classifier. It should be used only for
+    papers where an extra check can materially improve human review routing.
+    """
+    tok, model = _get_llm()
+    max_ctx = int(getattr(model.config, "max_position_embeddings", 4096))
+    budget = max(512, max_ctx - (max_new_tokens + 64))
+
+    label = "functional" if primary.get("functional_study") else "not functional"
+    rules_label = "functional" if rules_result.get("functional_study") else "not functional"
+    llm_label = "functional" if (llm_result or {}).get("functional_study") else "not functional"
+    prompt = f"""<s>[INST] You are a skeptical biomedical evidence verifier.
+
+Your job is to check whether the current label is actually supported for target gene {gene}.
+
+Current label: {label}
+Rules label: {rules_label}
+BioMistral classifier label: {llm_label}
+Current evidence-support score: {float(confidence or 0):.3f}
+Deterministic verifier: {verification.get('verification_status', 'unknown')}
+Deterministic verifier reasons: {verification.get('verification_reasons', '')}
+
+Functional evidence requires BOTH:
+1. Direct perturbation of {gene}, such as knockout, knockdown, CRISPR, shRNA, or siRNA.
+2. Cancer phenotype measurement, such as proliferation, apoptosis, migration, invasion, tumor growth, survival, organoid growth, or xenograft outcome.
+
+Challenge the label if:
+- the paper is review/meta-analysis/methods/prognosis/expression-only,
+- another gene is perturbed,
+- {gene} is only mentioned in background,
+- the evidence quote does not support perturbation plus phenotype.
+
+Return ONLY valid JSON with this schema:
+{VERIFIER_JSON_SCHEMA}
+
+TITLE:
+{(title or '').strip()}
+
+EVIDENCE SNIPPETS:
+\"\"\"{(evidence_text or 'No evidence extracted.').strip()[:2500]}\"\"\"
+
+ABSTRACT CONTEXT:
+\"\"\"{(abstract or '').strip()[:1500]}\"\"\"
+[/INST]
+JSON:
+"""
+    inputs = tok(prompt, return_tensors="pt", truncation=True, max_length=budget).to(model.device)
+    out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=tok.eos_token_id)
+    resp = tok.decode(out[0], skip_special_tokens=True)
+    if "[/INST]" in resp:
+        resp = resp.split("[/INST]")[-1]
+    return _normalize_verifier_json(_extract_json(resp))
+
+
 # SECTION 6: Ensemble + evidence-support score
 def ensemble_classify(gene: str, title: str, abstract: str,
                       evidence_text: str, ev: dict) -> dict:
@@ -898,9 +1083,98 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         # additional soft ceiling so disagreement remains review-worthy without
         # flattening many rows to the same score.
         confidence = min(confidence, 0.72)
+
+    agentic_verifier = None
+    if _should_run_agentic_verifier(
+        gene, primary, llm_result, llm_rules_disagree, verification, confidence, ev_for_score
+    ):
+        try:
+            agentic_verifier = run_llm_skeptical_verifier(
+                gene=gene,
+                title=title,
+                abstract=abstract,
+                evidence_text=evidence_text,
+                primary=primary,
+                rules_result=rules_result,
+                llm_result=llm_result,
+                verification=verification,
+                confidence=confidence,
+            )
+            _VERIFIER_STATE["calls"] += 1
+        except Exception as e:
+            print(f"  [Agentic verifier] Error: {e} - continuing with deterministic verifier")
+
+    if agentic_verifier:
+        decision = agentic_verifier["verifier_decision"]
+        agentic_score = 0.92 if decision == "support" else 0.18 if decision == "challenge" else 0.48
+        ev_for_score = {
+            **ev_for_score,
+            "agentic_verifier_decision": decision,
+            "agentic_verifier_reason": agentic_verifier.get("reason", ""),
+            "agentic_verifier_needs_review": agentic_verifier.get("needs_review", True),
+            "evidence_quality_score": max(
+                float(ev_for_score.get("evidence_quality_score") or 0.0),
+                agentic_score if decision == "support" else 0.0,
+            ),
+        }
+        if decision == "challenge":
+            verification = {
+                **verification,
+                "verification_status": "needs_review",
+                "verification_reasons": "; ".join(
+                    x for x in [
+                        verification.get("verification_reasons", ""),
+                        "LLM skeptical verifier challenged the classification",
+                        agentic_verifier.get("reason", ""),
+                    ] if x
+                ),
+                "evidence_quality_score": min(
+                    float(verification.get("evidence_quality_score") or 0.5),
+                    0.48,
+                ),
+            }
+            ev_for_score = {**ev_for_score, **verification}
+        elif decision == "unclear":
+            verification = {
+                **verification,
+                "verification_status": "needs_review",
+                "verification_reasons": "; ".join(
+                    x for x in [
+                        verification.get("verification_reasons", ""),
+                        "LLM skeptical verifier marked evidence unclear",
+                        agentic_verifier.get("reason", ""),
+                    ] if x
+                ),
+            }
+            ev_for_score = {**ev_for_score, **verification}
+
+        conf_functional, conf_not_functional, pos_signals, neg_signals = compute_confidence(
+            gene, llm_result, rules_result, ev_for_score, title, abstract
+        )
+        confidence = conf_functional if primary.get("functional_study") else conf_not_functional
+        if decision == "challenge":
+            confidence = min(confidence, 0.62)
+        elif decision == "unclear":
+            confidence = min(confidence, 0.76)
+        elif decision == "support" and primary.get("functional_study"):
+            confidence = min(0.95, confidence + 0.03)
+
     adjudication = adjudicator_agent(confidence, primary, verification, llm_rules_disagree)
     route = review_router_agent(confidence, primary, verification, llm_rules_disagree, adjudication)
     agent_trace = agent_result["trace"]
+    if agentic_verifier:
+        agent_trace["agents"].append({
+            "agent": "LLM Skeptical Verifier Agent",
+            "status": agentic_verifier["verifier_decision"],
+            "findings": [agentic_verifier.get("reason", "")],
+            "metrics": {
+                "target_gene_directly_studied": agentic_verifier.get("target_gene_directly_studied"),
+                "direct_gene_perturbation": agentic_verifier.get("direct_gene_perturbation"),
+                "phenotype_evidence": agentic_verifier.get("phenotype_evidence"),
+                "paper_type": agentic_verifier.get("paper_type"),
+                "needs_review": agentic_verifier.get("needs_review"),
+            },
+        })
     agent_trace["agents"].append(adjudication["agent"])
     agent_trace["agents"].append(route["agent"])
 
@@ -923,6 +1197,10 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         "adjudication_reasons":  adjudication["adjudication_reasons"],
         "review_recommendation": route["review_recommendation"],
         "review_reasons":        route["review_reasons"],
+        "agentic_verifier_decision": (agentic_verifier or {}).get("verifier_decision", ""),
+        "agentic_verifier_reason":   (agentic_verifier or {}).get("reason", ""),
+        "agentic_verifier_quote":    (agentic_verifier or {}).get("evidence_quote", ""),
+        "agentic_verifier_needs_review": bool((agentic_verifier or {}).get("needs_review", False)),
         "agent_trace":           serialize_agent_trace(agent_trace),
         "_llm_result":           llm_result,
         "_rules_result":         rules_result,
@@ -1135,6 +1413,7 @@ def analyze_gene(
     use_cache: bool = True,
 ) -> list[dict]:
     """Full pipeline for one gene. Returns list of row dicts (one per paper)."""
+    _VERIFIER_STATE["calls"] = 0
     print(f"\n{'='*60}")
     print(f"  Analyzing gene: {gene}")
     print(f"{'='*60}")
@@ -1304,6 +1583,10 @@ def analyze_gene(
             "gene_match_quality":         decision.get("gene_match_quality", ""),
             "adjudication_status":         decision.get("adjudication_status", ""),
             "adjudication_reasons":        decision.get("adjudication_reasons", ""),
+            "agentic_verifier_decision":    decision.get("agentic_verifier_decision", ""),
+            "agentic_verifier_reason":      decision.get("agentic_verifier_reason", ""),
+            "agentic_verifier_quote":       decision.get("agentic_verifier_quote", ""),
+            "agentic_verifier_needs_review": bool(decision.get("agentic_verifier_needs_review")),
             "review_recommendation":      decision.get("review_recommendation", ""),
             "review_reasons":             decision.get("review_reasons", ""),
             "agent_trace":                decision.get("agent_trace", ""),

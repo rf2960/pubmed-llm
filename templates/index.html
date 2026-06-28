@@ -776,6 +776,12 @@ function buildEv(row, uid) {
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">Verifier reasons</div>` +
       String(row.verification_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
   }
+  if (row.agentic_verifier_decision || row.agentic_verifier_reason || row.agentic_verifier_quote) {
+    const decision = row.agentic_verifier_decision ? `<span class="badge bprio-${row.agentic_verifier_decision === 'challenge' ? 'high' : row.agentic_verifier_decision === 'unclear' ? 'medium' : 'low'}">LLM verifier: ${esc(row.agentic_verifier_decision)}</span>` : '';
+    const quote = row.agentic_verifier_quote ? `<div class="ev-txt">Quote: ${esc(row.agentic_verifier_quote)}</div>` : '';
+    const reason = row.agentic_verifier_reason ? `<div class="ev-txt">Reason: ${esc(row.agentic_verifier_reason)}</div>` : '';
+    parts.push(`<div class="ev-lbl" style="margin-top:12px;">LLM skeptical verifier</div><div>${decision}</div>${quote}${reason}`);
+  }
   if (row.review_reasons) {
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review router reasons</div>` +
       String(row.review_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));
@@ -806,6 +812,7 @@ function buildEv(row, uid) {
       ['method_strength', 'Method strength'],
       ['context', 'Evidence context'],
       ['verifier', 'Skeptical verifier'],
+      ['llm_verifier', 'LLM verifier'],
       ['search_relevance', 'Search relevance'],
       ['evidence_retrieval', 'Evidence retrieval'],
       ['gene_linked_evidence', 'Gene-linked evidence'],

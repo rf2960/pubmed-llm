@@ -2,7 +2,7 @@
 
 Evidence-grounded biomedical literature extraction for functional cancer gene analysis.
 
-This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, runs small evidence-verification agents, writes structured evidence into SQLite, and syncs the database back to the website.
+This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, optionally runs a gated LLM skeptical verifier for risky papers, writes structured evidence into SQLite, and syncs the database back to the website.
 
 The project is intentionally practical: it is a maintainable evidence triage system, not a generic RAG product, not an open-ended autonomous agent platform, and not clinical decision support.
 
@@ -20,7 +20,8 @@ flowchart LR
     F --> L["Rule-based evidence detection"]
     L --> G["BioMistral-7B classifier"]
     G --> H["Evidence agents: finder, consensus, verifier, adjudicator, review router"]
-    H --> I["SQLite papers and genes tables"]
+    H --> V["Optional gated LLM skeptical verifier"]
+    V --> I["SQLite papers and genes tables"]
     I --> J["Google Drive DB file"]
     J --> B
     B --> K["Search, evidence table, review notes, CSV export"]
@@ -42,7 +43,7 @@ The current version combines rule-based evidence detection with an LLM classifie
 - deterministic paper-type label for review/prognosis/expression/methods triage
 - search-relevance and evidence-retrieval diagnostics
 - LLM/rule disagreement diagnostics
-- evidence-agent verification status, adjudicator result, review recommendation, and agent trace
+- evidence-agent verification status, optional LLM verifier result, adjudicator result, review recommendation, and agent trace
 - an evidence-support confidence score
 - human review status, label, reviewer notes, and reviewer timestamp
 
@@ -167,6 +168,10 @@ Copy `.env.example` for local reference, but do not commit real secrets.
 | `GDRIVE_CACHE` | worker | PubMed/PMC cache directory. |
 | `ENTREZ_EMAIL` | worker | NCBI Entrez contact email. |
 | `HF_TOKEN` | worker | Hugging Face token for model downloads. |
+| `USE_AGENTIC_VERIFIER` | worker | Optional second-pass LLM verifier for risky papers. Default `true`. |
+| `AGENTIC_MODE` | worker | Verifier mode: `borderline`, `functional`, `all`, or `off`. |
+| `MAX_VERIFIER_CALLS` | worker | Max LLM verifier calls per gene run. Default `8`. |
+| `VERIFIER_ONLY_BORDERLINE` | worker | Keep verifier focused on risky rows. Default `true`. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | website, upload scripts | Google service-account JSON content. |
 | `GOOGLE_DRIVE_DB_FILE_ID` | website, upload scripts | Exact Drive file id for the shared DB. Strongly recommended. |
 | `GOOGLE_DRIVE_FOLDER_ID` | website, upload scripts | Optional folder scope for Drive lookup. |

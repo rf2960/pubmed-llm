@@ -34,6 +34,8 @@ The score is computed in `confidence.py` from normalized components:
   methods/dataset-like papers are penalized unless direct functional evidence is
   present.
 - **Verifier score**: skeptical verifier support or penalties.
+- **LLM skeptical verifier**: optional second-pass BioMistral verifier support,
+  challenge, or unclear decision for risky rows.
 - **Adjudication/review routing**: internally inconsistent rows are routed for
   human review instead of being treated as routine.
 - **Negative evidence**: review-like, expression-only, correlation-only, or
@@ -48,6 +50,22 @@ The latest version also uses direct gene-linked evidence counts and paper type,
 which should reduce repeated scores caused by rows sharing the same generic
 rule/LLM pattern.
 
+## LLM Verifier Effect
+
+When enabled during live processing or full reprocessing, the LLM skeptical
+verifier can affect the score:
+
+- `support`: small positive adjustment when the primary label is functional and
+  evidence is coherent.
+- `challenge`: lowers functional evidence support and caps suspicious
+  functional claims.
+- `unclear`: keeps the row in a moderate/borderline band and routes it for
+  review.
+
+The verifier decision is stored separately from the score so reviewers can see
+why the score changed. The score remains heuristic and should not be interpreted
+as a calibrated probability.
+
 ## Updating Old Rows
 
 To refresh only the score/verifier fields from stored evidence:
@@ -61,6 +79,10 @@ python -u scripts/recompute_confidence.py \
 This does **not** rerun PubMed search or BioMistral. To rebuild old rows with
 the improved search and evidence retrieval algorithm, use the reprocess workflow
 in `docs/reprocess_workflow.md`.
+
+It also does not run the optional LLM verifier. To populate
+`agentic_verifier_*` fields for old rows, use full reprocessing on selected
+genes/PMIDs.
 
 `recompute_confidence.py` can backfill paper type and a best available evidence
 quote from stored evidence snippets, but it cannot recover full-text snippets

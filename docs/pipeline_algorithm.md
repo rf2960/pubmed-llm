@@ -24,6 +24,7 @@ Lab member submits/searches gene
   -> rules classifier
   -> BioMistral structured classifier
   -> evidence verifier agents
+  -> optional gated LLM skeptical verifier
   -> adjudicator + human-review router
   -> evidence-support score
   -> SQLite papers/genes tables
@@ -215,14 +216,51 @@ Agents:
 
 - **Evidence Finder Agent**: summarizes evidence coverage.
 - **Classifier Consensus Agent**: records whether rules and BioMistral agree.
-- **Skeptical Verifier Agent**: checks whether extracted evidence actually
-  supports the label.
+- **Deterministic Skeptical Verifier Agent**: checks whether extracted evidence
+  actually supports the label.
+- **LLM Skeptical Verifier Agent**: optional second BioMistral pass that
+  challenges risky classifications only.
 - **Adjudicator Agent**: challenges high-risk or internally inconsistent labels.
 - **Human Review Router**: assigns review priority and reasons.
 
-These agents are deterministic except for the upstream BioMistral classifier.
-They are designed to improve review quality without adding another slow LLM pass
-for every paper.
+Most agents are deterministic. The optional LLM verifier is gated so it does not
+run for every paper.
+
+### LLM Verifier Runtime Strategy
+
+The second LLM verifier runs only when it can materially improve review quality.
+Default triggers include:
+
+- functional paper labels
+- borderline evidence-support scores
+- rules/BioMistral disagreement
+- deterministic verifier status of `needs_review`, `weak_support`, or
+  `not_supported`
+- ambiguous gene symbols
+- high-confidence rows with weak extracted evidence
+
+Runtime flags:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `USE_AGENTIC_VERIFIER` | `true` | Enables the optional LLM verifier in live processing/reprocessing. |
+| `AGENTIC_MODE` | `borderline` | `borderline`, `functional`, `all`, or `off`. |
+| `MAX_VERIFIER_CALLS` | `8` | Max LLM verifier calls per gene run. |
+| `VERIFIER_ONLY_BORDERLINE` | `true` | Keeps verifier calls focused on risky rows. |
+
+The verifier returns structured JSON:
+
+- `verifier_decision`: `support`, `challenge`, or `unclear`
+- target-gene directness
+- direct perturbation yes/no
+- phenotype evidence yes/no
+- paper type judgment
+- evidence quote
+- reason
+- needs-review flag
+
+Verifier failures are non-fatal. The pipeline falls back to deterministic
+verification and review routing.
 
 ## 11. Evidence-Support Score
 
@@ -244,6 +282,7 @@ Main components:
 - full-text vs abstract-only context
 - paper type
 - skeptical verifier score
+- optional LLM verifier decision
 - negative evidence patterns
 
 Website bands:
@@ -263,6 +302,7 @@ false positives, including:
 - rules/LLM disagreement
 - weak verifier support
 - adjudicator challenge
+- LLM verifier challenge or unclear decision
 - no direct gene-linked evidence
 - negative paper type
 - functional label without perturbation evidence
@@ -274,12 +314,28 @@ quote, verifier reasons, adjudicator reasons, and reviewer notes.
 
 ## 13. Database Writes
 
-Final outputs are written to SQLite:
+Final outputs are written to SQLite.
 
 - `papers`: one row per gene/PMID pair
 - `genes`: per-gene summary and refresh metadata
 - `request_queue`: requested genes and processing status
 - `skipped_pmids`: papers skipped by filtering
+
+Agent/verifier fields in `papers` include:
+
+- `verification_status`
+- `verification_reasons`
+- `evidence_quality_score`
+- `gene_match_quality`
+- `adjudication_status`
+- `adjudication_reasons`
+- `agentic_verifier_decision`
+- `agentic_verifier_reason`
+- `agentic_verifier_quote`
+- `agentic_verifier_needs_review`
+- `review_recommendation`
+- `review_reasons`
+- `agent_trace`
 
 The DB is then uploaded/synced through Google Drive and read by the Hugging Face
 website.
@@ -298,7 +354,7 @@ python -u scripts/recompute_confidence.py \
 
 This updates support score, verifier/adjudicator fields, paper type, and best
 available evidence quote from stored snippets. It does not rerun PubMed,
-PMC retrieval, or BioMistral.
+PMC retrieval, BioMistral, or the optional LLM verifier.
 
 ### Full Reprocess
 
@@ -312,8 +368,8 @@ python -u scripts/reprocess_papers.py \
 ```
 
 This reruns search, ranking, evidence retrieval, classification, verification,
-and scoring. Use this for complaint genes, high-value genes, or when search and
-evidence extraction changed substantially.
+optional LLM verifier, and scoring. Use this for complaint genes, high-value
+genes, or when search and evidence extraction changed substantially.
 
 ## 15. Recommended Reprocessing Policy
 
@@ -408,12 +464,35 @@ Impact:
 - stronger explanation for why a paper was classified
 - better human-review prioritization
 
+### June 28, 2026 - Agentic Verifier Update
+
+Added a practical gated LLM verifier rather than a broad multi-agent RAG system:
+
+- optional BioMistral-based **LLM Skeptical Verifier Agent**
+- verifier runs only on risky rows by default
+- configurable flags: `USE_AGENTIC_VERIFIER`, `AGENTIC_MODE`,
+  `MAX_VERIFIER_CALLS`, `VERIFIER_ONLY_BORDERLINE`
+- verifier outputs saved as structured fields in SQLite
+- verifier result added to evidence-support scoring
+- LLM verifier challenge/unclear decisions routed to higher human review
+- website expanded rows show verifier decision, quote, and reason
+
+Impact:
+
+- stronger false-positive control for papers that look functional but may be
+  expression-only, prognosis-only, review-like, or about another gene
+- better transparency for lab reviewers
+- bounded runtime cost on Colab because only selected rows receive the second
+  LLM call
+
 ## Current Limitations
 
 - The score is heuristic and not calibrated against a large gold-label set.
 - Full-text retrieval depends on PMC availability.
 - Gene aliases are manual and conservative.
 - BioMistral is still a single local LLM classifier.
+- The optional LLM verifier uses the same BioMistral model, so it is not an
+  independent model-family check.
 - The system can miss papers whose abstracts omit direct perturbation or
   phenotype language.
 - Major algorithm changes should be validated on human-labeled examples before

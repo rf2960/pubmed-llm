@@ -57,6 +57,26 @@ An adjudicator step now challenges internally inconsistent classifications, such
 as functional labels without strong verifier support or high scores with weak
 evidence.
 
+### Gated LLM Skeptical Verifier
+
+The pipeline now supports an optional second BioMistral verifier pass. This is
+not run for every paper. It is gated to high-value cases:
+
+- functional labels
+- borderline support scores
+- rules/LLM disagreement
+- weak deterministic verifier support
+- ambiguous gene symbols
+- high scores with sparse evidence
+
+The verifier returns structured JSON: decision, direct target-gene study,
+perturbation evidence, phenotype evidence, paper-type judgment, quote, reason,
+and needs-review flag. Challenge or unclear decisions lower evidence support and
+raise human-review priority.
+
+This should reduce false positives where a paper is review-like, expression-only,
+prognosis-only, about another gene, or only loosely mentions the target gene.
+
 ### Paper Type And Direct Evidence Signals
 
 The pipeline now stores a deterministic `paper_type` label and PubMed
@@ -89,3 +109,20 @@ This is necessary when search, extraction, or classification logic changes.
 - Gene aliases remain manual and conservative.
 - The system can still miss papers whose abstracts do not mention direct
   perturbation/phenotype evidence.
+- The optional verifier uses the same local model family as the classifier, so
+  it improves reasoning/verification but is not an independent ensemble model.
+
+## Open-Source Resources Reviewed
+
+These resources are relevant for future accuracy work:
+
+- **NCBI E-utilities**: current authoritative PubMed search/fetch API already
+  used by the project.
+- **PubTator / PubTator3**: useful future source for gene/disease annotations
+  and normalized biomedical entities.
+- **NCBI Gene alias data**: useful future source for safer alias expansion.
+- **scispaCy**: local biomedical entity detection; useful later, but dependency
+  and model size make it less urgent than verifier/routing changes.
+- **PubMedBERT/BioBERT-family models**: possible future classifiers or sentence
+  rankers; would require validation against lab labels before replacing
+  BioMistral.

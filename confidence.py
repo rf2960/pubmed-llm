@@ -229,6 +229,16 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
     text_flags = _text_flags(title, abstract, ev)
     verification_status = str(ev.get("verification_status") or "").strip().lower()
     gene_match_quality = str(ev.get("gene_match_quality") or "").strip().lower()
+    agentic_verifier_decision = str(ev.get("agentic_verifier_decision") or "").strip().lower()
+    if agentic_verifier_decision not in {"support", "challenge", "unclear"}:
+        agentic_verifier_decision = ""
+    agentic_verifier_needs_review = _as_bool(ev.get("agentic_verifier_needs_review"))
+    agentic_support_score = (
+        1.0 if agentic_verifier_decision == "support"
+        else 0.0 if agentic_verifier_decision == "challenge"
+        else 0.45 if agentic_verifier_decision == "unclear"
+        else 0.0
+    )
     try:
         verifier_score = float(ev.get("evidence_quality_score") or 0.0)
     except (TypeError, ValueError):
@@ -260,6 +270,9 @@ def _support_components(gene, llm_result, rules_result, ev, title="", abstract="
         "evidence_retrieval_score": evidence_retrieval_score,
         "verification_status": verification_status,
         "gene_match_quality": gene_match_quality,
+        "agentic_verifier_decision": agentic_verifier_decision,
+        "agentic_verifier_needs_review": agentic_verifier_needs_review,
+        "agentic_support_score": agentic_support_score,
         "negative_text_score": min(
             1.0,
             (0.35 if text_flags["expression_only"] else 0.0)
@@ -302,6 +315,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         + 0.06 * components["gene_specificity"]
         + 0.04 * components["context_strength"]
         + 0.08 * components["verifier_score"]
+        + 0.06 * components["agentic_support_score"]
         + 0.06 * components["search_relevance_score"]
         + 0.05 * components["evidence_retrieval_score"]
     )
@@ -318,6 +332,10 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         conf_functional -= 0.08
     if components["n_evidence_sents"] == 0:
         conf_functional -= 0.18
+    if components["agentic_verifier_decision"] == "challenge":
+        conf_functional -= 0.18
+    elif components["agentic_verifier_decision"] == "unclear":
+        conf_functional -= 0.06
 
     # Hard caps only protect against missing essential evidence. We avoid a
     # rules-only cap because that created repeated artificial values such as 0.78.
@@ -335,6 +353,10 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         conf_functional = min(conf_functional, 0.64)
     elif components["verification_status"] == "needs_review":
         conf_functional = min(conf_functional, 0.76)
+    if components["agentic_verifier_decision"] == "challenge":
+        conf_functional = min(conf_functional, 0.62)
+    elif components["agentic_verifier_decision"] == "unclear":
+        conf_functional = min(conf_functional, 0.76)
 
     no_perturbation = 1.0 - components["perturbation_score"]
     no_phenotype = 1.0 - components["phenotype_score"]
@@ -349,6 +371,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         + 0.04 * (1.0 - components["evidence_depth_score"])
         + 0.02 * (1.0 - components["context_strength"])
         + 0.04 * (1.0 - components["verifier_score"])
+        + 0.05 * (1.0 - components["agentic_support_score"] if components["agentic_verifier_decision"] else 0.0)
         + 0.03 * (1.0 - components["search_relevance_score"])
         + 0.03 * (1.0 - components["evidence_retrieval_score"])
     )
@@ -358,6 +381,8 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         conf_not_functional = min(conf_not_functional, 0.72 + 0.05 * components["negative_text_score"])
     if components["verification_status"] == "needs_review":
         conf_not_functional = min(conf_not_functional, 0.76)
+    if components["agentic_verifier_decision"] == "challenge":
+        conf_not_functional = min(0.95, conf_not_functional + 0.06)
 
     pos_signals = {
         "direct_gene_perturbation_score": round(components["perturbation_score"], 2),
@@ -367,6 +392,7 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "source_reliability_score": round(components["source_reliability"], 2),
         "context_strength_score": round(components["context_strength"], 2),
         "evidence_verifier_score": round(components["verifier_score"], 2),
+        "llm_skeptical_verifier_score": round(components["agentic_support_score"], 2),
         "search_relevance_score": round(components["search_relevance_score"], 2),
         "evidence_retrieval_score": round(components["evidence_retrieval_score"], 2),
         "gene_linked_evidence_sents": components["gene_linked_evidence_sents"],
@@ -387,6 +413,8 @@ def compute_confidence(gene, llm_result, rules_result, ev, title="", abstract=""
         "llm_rules_disagree": components["disagreement"],
         "rules_only": components["rules_only"],
         "verification_status": components["verification_status"],
+        "agentic_verifier_decision": components["agentic_verifier_decision"],
+        "agentic_verifier_needs_review": components["agentic_verifier_needs_review"],
         "weak_gene_match": components["gene_match_quality"] == "weak",
     }
 
@@ -433,6 +461,9 @@ def compute_confidence_from_db_row(row: dict) -> tuple[float, float, float]:
         "paper_type": row.get("paper_type"),
         "publication_types": row.get("publication_types"),
         "gene_match_quality": row.get("gene_match_quality"),
+        "agentic_verifier_decision": row.get("agentic_verifier_decision"),
+        "agentic_verifier_reason": row.get("agentic_verifier_reason"),
+        "agentic_verifier_needs_review": row.get("agentic_verifier_needs_review"),
     }
     conf_func, conf_nonfunc, _, _ = compute_confidence(
         row.get("gene", ""), llm_result, rules_result, ev,
@@ -477,6 +508,9 @@ def explain_confidence_from_db_row(row: dict) -> dict:
         "paper_type": row.get("paper_type"),
         "publication_types": row.get("publication_types"),
         "gene_match_quality": row.get("gene_match_quality"),
+        "agentic_verifier_decision": row.get("agentic_verifier_decision"),
+        "agentic_verifier_reason": row.get("agentic_verifier_reason"),
+        "agentic_verifier_needs_review": row.get("agentic_verifier_needs_review"),
     }
     c = _support_components(row.get("gene", ""), llm_result, rules_result, ev, row.get("title", ""), "")
 
@@ -522,6 +556,8 @@ def explain_confidence_from_db_row(row: dict) -> dict:
         reasons.append(f"verifier status: {c['verification_status'].replace('_', ' ')}")
     elif c["verification_status"] == "supported":
         reasons.append("verifier status: supported")
+    if c["agentic_verifier_decision"]:
+        reasons.append(f"LLM skeptical verifier: {c['agentic_verifier_decision']}")
     if c["gene_match_quality"] == "weak":
         reasons.append("weak gene-specific evidence match")
 
@@ -535,6 +571,7 @@ def explain_confidence_from_db_row(row: dict) -> dict:
             "method_strength": round(c["method_strength"], 2),
             "context": round(c["context_strength"], 2),
             "verifier": round(c["verifier_score"], 2),
+            "llm_verifier": round(c["agentic_support_score"], 2),
             "search_relevance": round(c["search_relevance_score"], 2),
             "evidence_retrieval": round(c["evidence_retrieval_score"], 2),
             "gene_linked_evidence": round(min(1.0, c["gene_linked_evidence_sents"] / 4.0), 2),

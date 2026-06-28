@@ -62,6 +62,8 @@ def main() -> int:
                publication_types, paper_type, best_evidence_quote,
                gene_linked_evidence_sents, adjudication_status,
                adjudication_reasons,
+               agentic_verifier_decision, agentic_verifier_reason,
+               agentic_verifier_quote, agentic_verifier_needs_review,
                review_recommendation, review_reasons, agent_trace
         FROM papers
         {clause}
@@ -104,6 +106,10 @@ def main() -> int:
             "search_relevance_score": row.get("search_relevance_score"),
             "evidence_retrieval_score": row.get("evidence_retrieval_score"),
             "publication_types": row.get("publication_types"),
+            "agentic_verifier_decision": row.get("agentic_verifier_decision"),
+            "agentic_verifier_reason": row.get("agentic_verifier_reason"),
+            "agentic_verifier_quote": row.get("agentic_verifier_quote"),
+            "agentic_verifier_needs_review": row.get("agentic_verifier_needs_review"),
         }
         evidence_parts = []
         for key in ("evidence_perturbation", "evidence_in_vitro", "evidence_in_vivo", "evidence_crispr_screen"):

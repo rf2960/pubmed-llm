@@ -15,6 +15,21 @@ After the paper-type / best-evidence update, recompute can also backfill:
 However, it still cannot recover better snippets from PubMed/PMC. Use rebuild
 commands below when you want the improved evidence retrieval to affect old rows.
 
+The optional LLM skeptical verifier only runs during live processing or full
+reprocessing. It does not run during `recompute_confidence.py`.
+
+Colab flags for the verifier:
+
+```bash
+export USE_AGENTIC_VERIFIER=true
+export AGENTIC_MODE=borderline
+export MAX_VERIFIER_CALLS=8
+export VERIFIER_ONLY_BORDERLINE=true
+```
+
+In notebook Python cells, set them with `os.environ[...]` before running the
+reprocess command.
+
 ## Dry Run
 
 Preview a gene rebuild:
@@ -41,6 +56,9 @@ python -u scripts/reprocess_papers.py \
 This reruns PubMed search with the current algorithm, ranks candidates, rebuilds
 the top papers, writes a DB backup, updates changed rows, and uploads if Drive
 credentials are available.
+
+If `USE_AGENTIC_VERIFIER=true`, selected risky papers also receive the optional
+LLM skeptical verifier pass.
 
 ## Rebuild All Stored PMIDs For One Gene
 

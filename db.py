@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS papers (
     review_reasons            TEXT,
     adjudication_status       TEXT,
     adjudication_reasons      TEXT,
+    agentic_verifier_decision TEXT,
+    agentic_verifier_reason   TEXT,
+    agentic_verifier_quote    TEXT,
+    agentic_verifier_needs_review INTEGER,
     agent_trace               TEXT,
     best_evidence_quote       TEXT,
     evidence_perturbation     TEXT,
@@ -143,6 +147,10 @@ _PAPER_MIGRATIONS = {
     "gene_match_quality": "TEXT",
     "adjudication_status": "TEXT",
     "adjudication_reasons": "TEXT",
+    "agentic_verifier_decision": "TEXT",
+    "agentic_verifier_reason": "TEXT",
+    "agentic_verifier_quote": "TEXT",
+    "agentic_verifier_needs_review": "INTEGER",
     "review_recommendation": "TEXT",
     "review_reasons": "TEXT",
     "agent_trace": "TEXT",
@@ -305,6 +313,13 @@ def _review_signals(row: dict) -> list:
         signals.append("weak_gene_match")
     if str(row.get("adjudication_status") or "").lower() == "challenge":
         signals.append("adjudicator_challenge")
+    agentic_decision = str(row.get("agentic_verifier_decision") or "").lower()
+    if agentic_decision == "challenge":
+        signals.append("llm_verifier_challenge")
+    elif agentic_decision == "unclear":
+        signals.append("llm_verifier_unclear")
+    if row.get("agentic_verifier_needs_review"):
+        signals.append("llm_verifier_needs_review")
     if str(row.get("paper_type") or "").lower() in {
         "review",
         "clinical_prognostic",
@@ -336,6 +351,7 @@ def _review_priority(row: dict) -> str:
         or "verifier_not_supported" in signals
         or "verifier_weak_support" in signals
         or "adjudicator_challenge" in signals
+        or "llm_verifier_challenge" in signals
         or "high_priority_review" in signals
     ):
         return "high"
