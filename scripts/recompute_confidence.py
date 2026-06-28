@@ -64,6 +64,7 @@ def main() -> int:
                adjudication_reasons,
                agentic_verifier_decision, agentic_verifier_reason,
                agentic_verifier_quote, agentic_verifier_needs_review,
+               structured_evidence_json,
                review_recommendation, review_reasons, agent_trace
         FROM papers
         {clause}
@@ -141,6 +142,7 @@ def main() -> int:
             llm_result,
         )
         verification = agent_result["verification"]
+        structured_evidence = agent_result.get("structured_evidence") or {}
         row.update(verification)
         confidence, conf_func, conf_nonfunc = compute_confidence_from_db_row(row)
         adjudication = adjudicator_agent(
@@ -155,6 +157,7 @@ def main() -> int:
             verification,
             bool(row.get("llm_rules_disagree")),
             adjudication,
+            structured_evidence,
         )
         trace = agent_result["trace"]
         trace["agents"].append(adjudication["agent"])
@@ -175,6 +178,7 @@ def main() -> int:
             adjudication["adjudication_reasons"],
             route["review_recommendation"],
             route["review_reasons"],
+            serialize_agent_trace(structured_evidence),
             serialize_agent_trace(trace),
             row["gene"],
             row["pmid"],
@@ -207,6 +211,7 @@ def main() -> int:
                    adjudication_reasons=?,
                    review_recommendation=?,
                    review_reasons=?,
+                   structured_evidence_json=?,
                    agent_trace=?
                WHERE gene=? AND pmid=?""",
             updates,

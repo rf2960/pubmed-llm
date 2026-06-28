@@ -2,7 +2,7 @@
 
 Evidence-grounded biomedical literature extraction for functional cancer gene analysis.
 
-This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, optionally runs a gated LLM skeptical verifier for risky papers, writes structured evidence into SQLite, and syncs the database back to the website.
+This repository supports a lab workflow for finding and reviewing PubMed papers that may contain functional evidence for cancer-related genes. Lab members use a Hugging Face website to search existing results or request new genes. A separate GPU worker retrieves PubMed/PMC records, applies biomedical rules plus one LLM classifier, extracts structured evidence summaries, optionally runs a gated LLM skeptical verifier for risky papers, writes structured evidence into SQLite, and syncs the database back to the website.
 
 The project is intentionally practical: it is a maintainable evidence triage system, not a generic RAG product, not an open-ended autonomous agent platform, and not clinical decision support.
 
@@ -20,7 +20,7 @@ flowchart LR
     F --> L["Rule-based evidence detection"]
     L --> G["BioMistral-7B classifier"]
     G --> H["Evidence agents: finder, consensus, verifier, adjudicator, review router"]
-    H --> V["Optional gated LLM skeptical verifier"]
+    H --> V["Structured evidence summary + optional gated LLM skeptical verifier"]
     V --> I["SQLite papers and genes tables"]
     I --> J["Google Drive DB file"]
     J --> B
@@ -43,7 +43,7 @@ The current version combines rule-based evidence detection with an LLM classifie
 - deterministic paper-type label for review/prognosis/expression/methods triage
 - search-relevance and evidence-retrieval diagnostics
 - LLM/rule disagreement diagnostics
-- evidence-agent verification status, optional LLM verifier result, adjudicator result, review recommendation, and agent trace
+- structured evidence summary, evidence-agent verification status, optional LLM verifier result, adjudicator result, review recommendation, and agent trace
 - an evidence-support confidence score
 - human review status, label, reviewer notes, and reviewer timestamp
 
@@ -113,7 +113,7 @@ processes pending queue requests first, then refreshes existing genes whose
 | `db.py` | SQLite schema, migrations, queries, queue helpers, review helpers, export helpers. |
 | `drive_sync.py` | Google Drive download/upload logic for the website DB. |
 | `confidence.py` | Shared evidence-support scoring rubric used by both new processing and score recomputation. |
-| `evidence_agents.py` | Role-specific evidence agents: evidence finder, classifier consensus, skeptical verifier, adjudicator, and review router. |
+| `evidence_agents.py` | Role-specific evidence agents: evidence finder, structured evidence extractor, classifier consensus, skeptical verifier, adjudicator, and review router. |
 | `evidence_verifier.py` | Deterministic verifier used by the agent workflow and confidence scoring. |
 | `paper_type.py` | Lightweight deterministic paper-type classifier for review/prognosis/expression/methods triage. |
 | `pipeline.py` | PubMed/PMC retrieval, rules, evidence extraction, BioMistral classification, scoring. |

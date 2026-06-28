@@ -8,6 +8,7 @@ Both Colab (pipeline) and HF Spaces (web app) use this file.
 HF Spaces downloads a fresh copy from Drive every hour via the Drive API.
 """
 
+import json
 import os
 import sqlite3
 import pandas as pd
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS papers (
     agentic_verifier_reason   TEXT,
     agentic_verifier_quote    TEXT,
     agentic_verifier_needs_review INTEGER,
+    structured_evidence_json  TEXT,
     agent_trace               TEXT,
     best_evidence_quote       TEXT,
     evidence_perturbation     TEXT,
@@ -151,6 +153,7 @@ _PAPER_MIGRATIONS = {
     "agentic_verifier_reason": "TEXT",
     "agentic_verifier_quote": "TEXT",
     "agentic_verifier_needs_review": "INTEGER",
+    "structured_evidence_json": "TEXT",
     "review_recommendation": "TEXT",
     "review_reasons": "TEXT",
     "agent_trace": "TEXT",
@@ -320,6 +323,13 @@ def _review_signals(row: dict) -> list:
         signals.append("llm_verifier_unclear")
     if row.get("agentic_verifier_needs_review"):
         signals.append("llm_verifier_needs_review")
+    if row.get("structured_evidence_json"):
+        try:
+            structured = json.loads(row.get("structured_evidence_json") or "{}")
+            if bool(row.get("functional_study")) and structured.get("status") in {"partial", "missing"}:
+                signals.append(f"structured_evidence_{structured.get('status')}")
+        except Exception:
+            signals.append("structured_evidence_unreadable")
     if str(row.get("paper_type") or "").lower() in {
         "review",
         "clinical_prognostic",
@@ -697,7 +707,7 @@ def export_to_df(
         "verification_status", "verification_reasons", "evidence_quality_score",
         "search_relevance_score", "evidence_retrieval_score", "gene_linked_evidence_sents",
         "gene_match_quality", "adjudication_status", "adjudication_reasons",
-        "review_recommendation", "review_reasons",
+        "review_recommendation", "review_reasons", "structured_evidence_json",
         "review_status", "review_label", "review_notes", "reviewed_by", "reviewed_at",
     ]
     return df[[c for c in export_cols if c in df.columns]]

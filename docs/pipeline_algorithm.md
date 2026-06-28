@@ -21,6 +21,7 @@ Lab member submits/searches gene
   -> optional PMC full-text retrieval
   -> evidence-focused sentence retrieval
   -> deterministic paper-type classifier
+  -> structured evidence extractor agent
   -> rules classifier
   -> BioMistral structured classifier
   -> evidence verifier agents
@@ -215,6 +216,9 @@ chatbots.
 Agents:
 
 - **Evidence Finder Agent**: summarizes evidence coverage.
+- **Structured Evidence Extractor Agent**: converts snippets into reviewable
+  fields: evidence type, perturbation methods, phenotype terms, cancer context,
+  best quote, and missing evidence components.
 - **Classifier Consensus Agent**: records whether rules and BioMistral agree.
 - **Deterministic Skeptical Verifier Agent**: checks whether extracted evidence
   actually supports the label.
@@ -225,6 +229,11 @@ Agents:
 
 Most agents are deterministic. The optional LLM verifier is gated so it does not
 run for every paper.
+
+The structured extractor is deterministic and runs for every processed paper.
+It does not add runtime-heavy LLM calls. Its purpose is transparency: it records
+what evidence the pipeline actually found and what is missing before a reviewer
+trusts the label.
 
 ### LLM Verifier Runtime Strategy
 
@@ -283,6 +292,7 @@ Main components:
 - paper type
 - skeptical verifier score
 - optional LLM verifier decision
+- structured-evidence completeness
 - negative evidence patterns
 
 Website bands:
@@ -304,6 +314,8 @@ false positives, including:
 - adjudicator challenge
 - LLM verifier challenge or unclear decision
 - no direct gene-linked evidence
+- missing structured evidence fields such as perturbation method, phenotype
+  term, or direct gene quote
 - negative paper type
 - functional label without perturbation evidence
 - ambiguous gene symbol
@@ -311,6 +323,8 @@ false positives, including:
 
 The Hugging Face website displays review status, support components, evidence
 quote, verifier reasons, adjudicator reasons, and reviewer notes.
+Expanded paper rows also show the structured evidence extractor output when
+available.
 
 ## 13. Database Writes
 
@@ -333,6 +347,7 @@ Agent/verifier fields in `papers` include:
 - `agentic_verifier_reason`
 - `agentic_verifier_quote`
 - `agentic_verifier_needs_review`
+- `structured_evidence_json`
 - `review_recommendation`
 - `review_reasons`
 - `agent_trace`
@@ -484,6 +499,29 @@ Impact:
 - better transparency for lab reviewers
 - bounded runtime cost on Colab because only selected rows receive the second
   LLM call
+
+### June 28, 2026 - Structured Evidence Extractor Update
+
+Added a deterministic structured evidence extractor to make the agent workflow
+more reviewable without adding another LLM call:
+
+- new **Structured Evidence Extractor Agent** in `evidence_agents.py`
+- extracts evidence type, perturbation methods, phenotype terms, cancer context,
+  best quote, direct-gene evidence flag, and missing evidence components
+- stores output in `papers.structured_evidence_json`
+- `scripts/recompute_confidence.py` can backfill structured evidence from stored
+  snippets for old rows
+- review routing now adds reasons when functional labels are missing structured
+  evidence components
+- website expanded rows show the structured evidence summary
+- CSV exports include the structured evidence JSON for downstream audit
+
+Impact:
+
+- easier reviewer inspection of why a paper was labeled functional
+- clearer difference between "has a score" and "has direct perturbation +
+  phenotype evidence"
+- no extra model calls, so Colab runtime stays essentially unchanged
 
 ## Current Limitations
 

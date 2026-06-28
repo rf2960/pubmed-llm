@@ -11,6 +11,7 @@ After the paper-type / best-evidence update, recompute can also backfill:
 - `best_evidence_quote` from already stored snippets
 - `gene_linked_evidence_sents`
 - `adjudication_status` / `adjudication_reasons`
+- `structured_evidence_json` from already stored snippets
 
 However, it still cannot recover better snippets from PubMed/PMC. Use rebuild
 commands below when you want the improved evidence retrieval to affect old rows.
@@ -83,9 +84,9 @@ python -u scripts/recompute_confidence.py \
   --upload
 ```
 
-Use this when the lab wants the new support rubric, paper-type labels, and
-review routing fields applied to existing stored snippets without rerunning the
-slow BioMistral worker.
+Use this when the lab wants the new support rubric, paper-type labels,
+structured evidence summaries, and review routing fields applied to existing
+stored snippets without rerunning the slow BioMistral worker.
 
 ## Rebuild Selected PMIDs
 

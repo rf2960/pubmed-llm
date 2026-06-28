@@ -1071,6 +1071,7 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         llm_result=llm_result,
     )
     verification = agent_result["verification"]
+    structured_evidence = agent_result.get("structured_evidence") or {}
     ev_for_score = {**(ev or {}), **verification}
 
     conf_functional, conf_not_functional, pos_signals, neg_signals = compute_confidence(
@@ -1160,7 +1161,9 @@ def ensemble_classify(gene: str, title: str, abstract: str,
             confidence = min(0.95, confidence + 0.03)
 
     adjudication = adjudicator_agent(confidence, primary, verification, llm_rules_disagree)
-    route = review_router_agent(confidence, primary, verification, llm_rules_disagree, adjudication)
+    route = review_router_agent(
+        confidence, primary, verification, llm_rules_disagree, adjudication, structured_evidence
+    )
     agent_trace = agent_result["trace"]
     if agentic_verifier:
         agent_trace["agents"].append({
@@ -1201,6 +1204,7 @@ def ensemble_classify(gene: str, title: str, abstract: str,
         "agentic_verifier_reason":   (agentic_verifier or {}).get("reason", ""),
         "agentic_verifier_quote":    (agentic_verifier or {}).get("evidence_quote", ""),
         "agentic_verifier_needs_review": bool((agentic_verifier or {}).get("needs_review", False)),
+        "structured_evidence_json":   serialize_agent_trace(structured_evidence),
         "agent_trace":           serialize_agent_trace(agent_trace),
         "_llm_result":           llm_result,
         "_rules_result":         rules_result,

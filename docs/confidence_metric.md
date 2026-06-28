@@ -36,6 +36,9 @@ The score is computed in `confidence.py` from normalized components:
 - **Verifier score**: skeptical verifier support or penalties.
 - **LLM skeptical verifier**: optional second-pass BioMistral verifier support,
   challenge, or unclear decision for risky rows.
+- **Structured evidence completeness**: whether the pipeline found direct
+  target-gene evidence, perturbation method, phenotype/outcome terms, and a
+  usable quote.
 - **Adjudication/review routing**: internally inconsistent rows are routed for
   human review instead of being treated as routine.
 - **Negative evidence**: review-like, expression-only, correlation-only, or
@@ -88,6 +91,10 @@ genes/PMIDs.
 quote from stored evidence snippets, but it cannot recover full-text snippets
 that were not stored originally. Use `scripts/reprocess_papers.py --ignore-cache`
 when the lab wants old rows fully rebuilt with the newest evidence retrieval.
+
+The same script also backfills `structured_evidence_json` from stored snippets.
+This is useful for website review, but it remains limited by what evidence was
+already stored in the database.
 
 ## Calibration Plan
 

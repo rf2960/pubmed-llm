@@ -5,10 +5,11 @@ that produce structured, inspectable outputs around the existing rules +
 BioMistral classifier:
 
 1. Evidence Finder Agent: summarizes extracted evidence coverage.
-2. Classifier Consensus Agent: records rules/LLM agreement.
-3. Skeptical Verifier Agent: tries to disprove the assigned label.
-4. Adjudicator Agent: challenges high-risk or internally inconsistent labels.
-5. Review Router Agent: decides whether a human should inspect the paper.
+2. Structured Evidence Extractor Agent: turns snippets into reviewable fields.
+3. Classifier Consensus Agent: records rules/LLM agreement.
+4. Skeptical Verifier Agent: tries to disprove the assigned label.
+5. Adjudicator Agent: challenges high-risk or internally inconsistent labels.
+6. Review Router Agent: decides whether a human should inspect the paper.
 
 The design keeps runtime low and avoids adding a second LLM pass by default.
 """
@@ -38,6 +39,130 @@ def _gene_mentions(gene: str, text: str) -> int:
     if not gene:
         return 0
     return len(re.findall(rf"\b{re.escape(str(gene))}\b", text or "", flags=re.I))
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> list[str]:
+    text_l = (text or "").lower()
+    return [term for term in terms if term in text_l]
+
+
+METHOD_PATTERNS = {
+    "KO": ("knockout", "knock-out", "knock out", "ko ", "ko-", "deleted", "deletion"),
+    "KD": ("knockdown", "knock-down", "silencing", "silenced", "depletion", "depleted"),
+    "shRNA": ("shrna", "short hairpin"),
+    "siRNA": ("sirna", "small interfering"),
+    "CRISPR": ("crispr", "cas9", "gene editing", "genome editing"),
+    "screen": ("screen", "screening", "pooled screen"),
+}
+
+METHOD_PRIMARY_KEYS = {
+    "KO": ("knockout",),
+    "KD": ("knockdown",),
+    "shRNA": ("shrna",),
+    "siRNA": ("sirna",),
+    "CRISPR": ("crispr",),
+    "screen": ("crispr_screen",),
+}
+
+PHENOTYPE_TERMS = (
+    "proliferation", "growth", "viability", "survival", "apoptosis",
+    "migration", "invasion", "metastasis", "tumor growth", "tumour growth",
+    "colony formation", "sphere formation", "organoid", "xenograft",
+    "drug resistance", "radioresistance", "chemoresistance",
+)
+
+CANCER_CONTEXT_TERMS = (
+    "pancreatic", "pdac", "colon", "colorectal", "gastric", "intestinal",
+    "liver", "hepatocellular", "breast", "lung", "glioma", "melanoma",
+    "prostate", "ovarian", "leukemia", "lymphoma", "cancer", "carcinoma",
+    "tumor", "tumour", "malignan",
+)
+
+
+def structured_evidence_extractor_agent(gene: str, title: str, abstract: str, ev: dict, primary: dict) -> dict:
+    """Create a compact evidence record for lab review.
+
+    This is deterministic and intentionally conservative. It does not claim to
+    prove the classification; it explains which evidence signals the pipeline
+    found so reviewers can spot weak functional calls faster.
+    """
+    ev = ev or {}
+    primary = primary or {}
+    evidence_parts = []
+    for key in ("evidence_perturbation", "evidence_in_vitro", "evidence_in_vivo", "evidence_crispr_screen"):
+        evidence_parts.extend(_split_evidence(ev.get(key)))
+    evidence_text = "\n".join(evidence_parts)
+    combined = f"{title or ''}\n{abstract or ''}\n{evidence_text}"
+
+    methods: list[str] = []
+    for method, terms in METHOD_PATTERNS.items():
+        if _contains_any(combined, terms) or any(_as_bool(primary.get(k)) for k in METHOD_PRIMARY_KEYS.get(method, ())):
+            methods.append(method)
+    methods = list(dict.fromkeys(methods))
+
+    phenotype_terms = _contains_any(combined, PHENOTYPE_TERMS)
+    cancer_terms = _contains_any(combined, CANCER_CONTEXT_TERMS)
+
+    vitro = _as_bool(primary.get("in_vitro")) or bool(_split_evidence(ev.get("evidence_in_vitro")))
+    vivo = _as_bool(primary.get("in_vivo")) or bool(_split_evidence(ev.get("evidence_in_vivo")))
+    if vitro and vivo:
+        evidence_type = "both"
+    elif vitro:
+        evidence_type = "in_vitro"
+    elif vivo:
+        evidence_type = "in_vivo"
+    else:
+        evidence_type = "unspecified"
+
+    best_quote = str(ev.get("best_evidence_quote") or "").strip()
+    if not best_quote and evidence_parts:
+        best_quote = evidence_parts[0]
+
+    gene_mentions = _gene_mentions(gene, evidence_text)
+    direct_gene_evidence = gene_mentions > 0
+    has_functional_signals = bool(methods and phenotype_terms and direct_gene_evidence)
+    missing = []
+    if not direct_gene_evidence:
+        missing.append("direct gene-linked evidence")
+    if not methods:
+        missing.append("perturbation method")
+    if not phenotype_terms:
+        missing.append("phenotype/outcome term")
+    if not best_quote:
+        missing.append("evidence quote")
+
+    if not missing:
+        status = "complete"
+    elif len(missing) <= 2 and evidence_parts:
+        status = "partial"
+    else:
+        status = "missing"
+
+    findings = [
+        f"evidence type: {evidence_type}",
+        f"methods: {', '.join(methods) if methods else 'none detected'}",
+        f"phenotype terms: {', '.join(phenotype_terms[:5]) if phenotype_terms else 'none detected'}",
+    ]
+    if missing:
+        findings.append("missing: " + ", ".join(missing))
+
+    return {
+        "agent": "Structured Evidence Extractor Agent",
+        "status": status,
+        "findings": findings,
+        "metrics": {
+            "target_gene": str(gene or "").upper(),
+            "direct_gene_evidence": direct_gene_evidence,
+            "gene_mentions_in_evidence": gene_mentions,
+            "perturbation_methods": methods,
+            "phenotype_terms": phenotype_terms[:8],
+            "cancer_context_terms": cancer_terms[:8],
+            "evidence_type": evidence_type,
+            "best_quote": best_quote[:600],
+            "functional_candidate": has_functional_signals,
+            "missing_components": missing,
+        },
+    }
 
 
 def evidence_finder_agent(gene: str, ev: dict) -> dict:
@@ -124,6 +249,7 @@ def run_pre_scoring_agents(
 ) -> dict:
     """Run evidence, consensus, and verifier agents before confidence scoring."""
     evidence_agent = evidence_finder_agent(gene, ev)
+    structured_agent = structured_evidence_extractor_agent(gene, title, abstract, ev, primary)
     consensus_agent = classifier_consensus_agent(primary, rules_result, llm_result)
     verification = verify_evidence(gene, title, abstract, ev, primary, rules_result, llm_result)
     verifier_agent = {
@@ -137,9 +263,10 @@ def run_pre_scoring_agents(
     }
     return {
         "verification": verification,
+        "structured_evidence": structured_agent,
         "trace": {
             "workflow": "evidence_agent_workflow_v1",
-            "agents": [evidence_agent, consensus_agent, verifier_agent],
+            "agents": [evidence_agent, structured_agent, consensus_agent, verifier_agent],
         },
     }
 
@@ -200,13 +327,17 @@ def review_router_agent(
     verification: dict,
     llm_rules_disagree: bool,
     adjudication: dict | None = None,
+    structured_evidence: dict | None = None,
 ) -> dict:
     """Route the paper to routine review or elevated human review."""
     primary = primary or {}
     verification = verification or {}
     adjudication = adjudication or {}
+    structured_evidence = structured_evidence or {}
     status = str(verification.get("verification_status") or "")
     reasons: list[str] = []
+    structured_status = str(structured_evidence.get("status") or "")
+    structured_metrics = structured_evidence.get("metrics") or {}
 
     if adjudication.get("adjudication") == "challenge":
         recommendation = "high_priority_review"
@@ -229,6 +360,14 @@ def review_router_agent(
 
     if _as_bool(primary.get("functional_study")) and status != "supported":
         reasons.append("functional label should be checked before biological interpretation")
+    if verification.get("gene_match_quality") in {"weak", "missing"}:
+        reasons.append("target gene evidence is weak or missing")
+    if _as_bool(primary.get("functional_study")) and structured_status in {"missing", "partial"}:
+        missing = structured_metrics.get("missing_components") or []
+        if missing:
+            reasons.append("structured evidence missing " + ", ".join(missing[:3]))
+            if recommendation == "routine":
+                recommendation = "medium_priority_review"
 
     return {
         "review_recommendation": recommendation,

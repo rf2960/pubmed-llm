@@ -782,6 +782,24 @@ function buildEv(row, uid) {
     const reason = row.agentic_verifier_reason ? `<div class="ev-txt">Reason: ${esc(row.agentic_verifier_reason)}</div>` : '';
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">LLM skeptical verifier</div><div>${decision}</div>${quote}${reason}`);
   }
+  if (row.structured_evidence_json) {
+    try {
+      const structured = JSON.parse(row.structured_evidence_json);
+      const m = structured.metrics || {};
+      const methodChips = (m.perturbation_methods || []).map(x => `<span class="badge bvt">${esc(x)}</span>`).join(' ');
+      const phenotypeChips = (m.phenotype_terms || []).slice(0, 6).map(x => `<span class="badge bb">${esc(x)}</span>`).join(' ');
+      const cancerChips = (m.cancer_context_terms || []).slice(0, 6).map(x => `<span class="badge bca">${esc(x)}</span>`).join(' ');
+      const missing = (m.missing_components || []).map(x => `<span class="badge bprio-medium">${esc(x)}</span>`).join(' ');
+      const quote = m.best_quote ? `<div class="ev-txt">Quote: ${esc(m.best_quote)}</div>` : '';
+      parts.push(`<div class="ev-lbl" style="margin-top:12px;">Structured evidence extractor</div>
+        <div class="ev-txt">Status: ${esc(structured.status || 'unknown')} - Evidence type: ${esc(m.evidence_type || 'unspecified')} - Direct gene evidence: ${m.direct_gene_evidence ? 'yes' : 'no'}</div>
+        ${methodChips ? `<div class="ev-txt">Methods: ${methodChips}</div>` : ''}
+        ${phenotypeChips ? `<div class="ev-txt">Phenotypes: ${phenotypeChips}</div>` : ''}
+        ${cancerChips ? `<div class="ev-txt">Cancer context: ${cancerChips}</div>` : ''}
+        ${missing ? `<div class="ev-txt">Missing/weak: ${missing}</div>` : ''}
+        ${quote}`);
+    } catch (e) {}
+  }
   if (row.review_reasons) {
     parts.push(`<div class="ev-lbl" style="margin-top:12px;">Review router reasons</div>` +
       String(row.review_reasons).split(';').filter(Boolean).map(x => `<div class="ev-txt">- ${esc(x.trim())}</div>`).join(''));

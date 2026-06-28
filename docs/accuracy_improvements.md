@@ -89,6 +89,25 @@ Evidence retrieval also stores a `best_evidence_quote` and
 question: "Where is the strongest sentence that actually links this gene to a
 functional experiment?"
 
+### Structured Evidence Extractor
+
+The pipeline now stores a deterministic structured evidence summary in
+`structured_evidence_json`. This agent turns the retrieved snippets into
+reviewable fields:
+
+- direct target-gene evidence yes/no
+- evidence type: in vitro, in vivo, both, or unspecified
+- perturbation methods found
+- phenotype/outcome terms found
+- cancer context terms found
+- best quote
+- missing components, such as missing perturbation or phenotype evidence
+
+This improves review accuracy because lab members can see why a functional
+classification was made without reading the raw agent trace. It also helps flag
+functional labels whose evidence is incomplete. The extractor is deterministic
+and does not add another LLM call.
+
 ### More Diagnostic Evaluation
 
 `scripts/evaluate_gold_labels.py` now reports score-band accuracy and errors by
@@ -126,3 +145,6 @@ These resources are relevant for future accuracy work:
 - **PubMedBERT/BioBERT-family models**: possible future classifiers or sentence
   rankers; would require validation against lab labels before replacing
   BioMistral.
+- **Lightweight abstract retrieval / RAG**: useful future direction for
+  multi-sentence evidence selection, but the current implementation keeps it as
+  explainable sentence scoring rather than a vector database.
