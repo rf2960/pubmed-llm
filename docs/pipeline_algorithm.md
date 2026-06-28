@@ -1,87 +1,145 @@
 # Pipeline Algorithm
 
-This project is an evidence-grounded literature triage system. It is not a
-generic RAG chatbot and it is not clinical decision support.
+This document describes the current PubMed-LLM paper search and classification
+pipeline. It should be treated as the main technical reference for how the
+project decides which papers are likely functional gene evidence.
 
-## Current Workflow
+The system is an evidence-grounded biomedical literature triage system. It is
+not a generic RAG chatbot, not clinical decision support, and not a statistically
+calibrated classifier.
+
+## Current Pipeline, End To End
 
 ```text
-gene
+Lab member submits/searches gene
+  -> Hugging Face Flask website
+  -> SQLite request_queue
+  -> Colab/GPU maintenance runner
   -> PubMed candidate search
-  -> candidate ranking
-  -> PubMed metadata / abstract retrieval
+  -> PubMed candidate ranking
+  -> PubMed metadata + abstract retrieval
   -> optional PMC full-text retrieval
   -> evidence-focused sentence retrieval
   -> deterministic paper-type classifier
   -> rules classifier
   -> BioMistral structured classifier
-  -> evidence verifier / adjudicator agents
+  -> evidence verifier agents
+  -> adjudicator + human-review router
   -> evidence-support score
-  -> SQLite database / review UI
+  -> SQLite papers/genes tables
+  -> Google Drive DB sync
+  -> Hugging Face review/search UI
 ```
 
-## Search
+## 1. Gene Request And Queue
 
-The search layer now uses two passes:
+Gene requests are submitted through the Hugging Face website and stored in the
+SQLite `request_queue` table. The maintenance runner processes pending requests
+using `scripts/process_queue.py`.
 
-1. **Evidence-focused query**: gene + cancer terms + functional evidence terms
-   such as knockdown, knockout, CRISPR, siRNA, shRNA, proliferation, apoptosis,
-   xenograft, mouse, organoid, in vitro, and in vivo. Review-like publication
-   types are excluded from this first pass.
-2. **Broad cancer fallback**: gene + cancer terms. This preserves recall for
-   papers whose abstracts do not use obvious perturbation vocabulary.
+Queue states:
 
-The two PMID lists are merged with the evidence-focused results first.
+- `pending`: waiting to be processed.
+- `processing`: currently running or interrupted mid-run.
+- `done`: successfully processed.
+- `error`: failed and needs retry or review.
 
-Gene aliases are optional and conservative. Add aliases to
-`data/gene_aliases.tsv` only when the synonym is well known and unlikely to
-increase false positives.
+The queue processor can also retry failed rows and refresh existing genes whose
+`genes.last_run_at` is stale.
 
-## Candidate Ranking
+## 2. PubMed Search
 
-Before BioMistral runs, candidate papers are ranked by lightweight evidence
-signals:
+Search is implemented in `pipeline.py`.
+
+The search layer uses two passes:
+
+1. **Evidence-focused query**
+   - gene symbol plus curated aliases
+   - cancer terms
+   - perturbation terms: knockdown, knockout, CRISPR, siRNA, shRNA, RNAi
+   - phenotype terms: proliferation, apoptosis, migration, invasion, tumor
+     growth, survival, colony formation
+   - model terms: cell line, xenograft, mouse, organoid, in vitro, in vivo
+   - excludes review-like publication types in the focused pass
+
+2. **Broad cancer fallback**
+   - gene symbol plus cancer terms
+   - preserves recall when abstracts do not use obvious functional vocabulary
+
+The evidence-focused PMID list is merged before the broad fallback list, so the
+worker spends GPU time on higher-value candidates first.
+
+## 3. Gene Alias Handling
+
+Aliases are loaded from `data/gene_aliases.tsv`.
+
+Alias handling is intentionally conservative. Broad automatic synonym expansion
+can hurt precision, especially for short or ambiguous gene symbols. Add aliases
+only when the synonym is well known and unlikely to retrieve unrelated papers.
+
+## 4. Candidate Ranking
+
+Before BioMistral runs, candidate papers are ranked with a lightweight heuristic
+ranker. This ranker scores:
 
 - target gene or curated alias mentions
 - cancer context
-- perturbation terms
-- phenotype terms
-- experimental model terms
-- penalties for review-like and expression-only/biomarker-only language
+- perturbation keywords
+- phenotype keywords
+- model/system keywords
+- penalties for review-like language
+- penalties for expression/biomarker/prognosis-only language
 
-This ranking helps the worker spend limited Colab/GPU time on better candidate
-papers. It does not remove the broad fallback pool.
+The ranker does not make the final classification. It decides which candidate
+papers should be processed first when `max_papers` is limited.
 
-## Evidence Retrieval
+## 5. Metadata And Full-Text Retrieval
 
-For each paper, the pipeline retrieves evidence-centered snippets from the
-abstract and available PMC full text. It prioritizes sentences that mention:
+For each selected PMID, the worker retrieves:
 
-- target gene
+- title
+- abstract
+- journal
+- year
+- DOI
+- PubMed publication types
+
+When available, the worker also retrieves PMC full text. Most papers still rely
+on abstract-level evidence because not all full text is available through PMC.
+
+## 6. Evidence Retrieval
+
+The evidence extractor scores sentences from the abstract and available PMC full
+text. It prioritizes sentences mentioning:
+
+- the target gene
 - perturbation method
-- experimental model
-- phenotype or functional outcome
 - cancer context
+- in vitro or in vivo experimental model
+- phenotype or functional outcome
 
-Neighboring sentences are retained for context. The classifier should judge the
-paper from these evidence snippets, not only from the title.
+Neighboring sentences are retained for context, but phenotype evidence is only
+counted as in vitro/in vivo evidence when the sentence is directly linked to the
+queried gene.
 
-The extractor now also records:
+Stored evidence fields include:
 
-- `best_evidence_quote`: the strongest sentence that directly links the target
-  gene to experimental evidence.
-- `gene_linked_evidence_sents`: how many extracted evidence sentences directly
-  mention the target gene and an experimental signal.
-- `evidence_retrieval_score`: how strong the best retrieved evidence sentence
-  was.
+- `evidence_perturbation`
+- `evidence_in_vitro`
+- `evidence_in_vivo`
+- `evidence_crispr_screen`
+- `best_evidence_quote`
+- `total_evidence_sents`
+- `gene_linked_evidence_sents`
+- `evidence_retrieval_score`
 
-Phenotype evidence is only counted as in vitro/in vivo evidence when the
-sentence is directly linked to the queried gene. This reduces false positives
-where an abstract mentions a phenotype for a different target.
+`best_evidence_quote` is the strongest extracted sentence that directly links
+the target gene with experimental evidence. This helps reviewers quickly inspect
+why a paper was scored.
 
-## Paper Type
+## 7. Paper-Type Classifier
 
-`paper_type.py` assigns a lightweight, deterministic triage label:
+`paper_type.py` assigns a deterministic triage label:
 
 - `functional_experiment`
 - `functional_screen`
@@ -91,35 +149,272 @@ where an abstract mentions a phenotype for a different target.
 - `methods_or_dataset`
 - `unknown`
 
-This is not a formal publication-type ontology. It is a practical review signal
-used to penalize likely review/prognosis/expression-only papers and to make the
-website table easier to scan.
+This is not a formal publication-type ontology. It is a practical paper-review
+signal used by the confidence score, verifier, CSV export, and website UI.
 
-## Classification
+Review/prognosis/expression/methods-like papers are penalized unless the
+extracted evidence contains direct functional evidence.
 
-The rules classifier requires direct gene perturbation plus in vitro or in vivo
-phenotype evidence for a functional label. BioMistral receives the extracted
-evidence section and returns a structured JSON label. If BioMistral is
-unavailable, the system falls back to rules-only mode and marks that fact in
-diagnostics.
+## 8. Rules Classifier
 
-## Verification
+The rules classifier requires:
 
-The evidence agent workflow checks:
+1. direct perturbation of the target gene, and
+2. measured cancer phenotype in vitro or in vivo.
 
-- whether evidence snippets are present
-- whether rules and BioMistral agree
-- whether the assigned label is actually supported
-- whether a high-confidence label is internally consistent
-- whether the paper type conflicts with a functional label
-- whether direct gene-linked evidence is missing
-- whether the row should be routed to human review
+Examples of accepted perturbation signals:
 
-The verifier is deterministic by default so the workflow stays affordable and
-auditable in Colab.
+- knockout
+- knockdown
+- shRNA
+- siRNA
+- CRISPR/Cas9
+- gene deletion/silencing/loss-of-function
 
-## Important Limitation
+Examples of accepted phenotype/model signals:
 
-Most rows are classified from abstract-level evidence. Full text is used when
-PMC text is available, but many papers do not expose full text through PMC.
-Human review remains necessary for high-impact or borderline conclusions.
+- proliferation
+- viability
+- apoptosis/cell death
+- colony formation
+- organoid growth
+- xenograft tumor growth
+- tumor size/volume
+- survival
+
+Expression-only, correlation-only, biomarker-only, and prognosis-only papers
+should not be labeled functional by rules alone.
+
+## 9. BioMistral Classifier
+
+BioMistral-7B receives:
+
+- paper title
+- extracted evidence section
+- truncated abstract as context
+
+It returns structured JSON for:
+
+- functional study yes/no
+- perturbation method flags
+- in vitro / in vivo flags
+- impact type
+- cancer type
+- one-sentence reasoning
+
+BioMistral does not return a calibrated probability. If BioMistral fails or is
+disabled, the pipeline falls back to rules-only classification and records that
+diagnostic.
+
+## 10. Evidence Agents
+
+The project uses small, auditable workflow agents. They are not autonomous
+chatbots.
+
+Agents:
+
+- **Evidence Finder Agent**: summarizes evidence coverage.
+- **Classifier Consensus Agent**: records whether rules and BioMistral agree.
+- **Skeptical Verifier Agent**: checks whether extracted evidence actually
+  supports the label.
+- **Adjudicator Agent**: challenges high-risk or internally inconsistent labels.
+- **Human Review Router**: assigns review priority and reasons.
+
+These agents are deterministic except for the upstream BioMistral classifier.
+They are designed to improve review quality without adding another slow LLM pass
+for every paper.
+
+## 11. Evidence-Support Score
+
+The `confidence` column is an evidence-support score from `0.00` to `1.00`.
+
+It is not a calibrated probability.
+
+Main components:
+
+- search relevance
+- evidence retrieval strength
+- direct perturbation evidence
+- phenotype/model evidence
+- evidence depth and diversity
+- method strength
+- rule/LLM agreement
+- gene specificity
+- direct gene-linked evidence count
+- full-text vs abstract-only context
+- paper type
+- skeptical verifier score
+- negative evidence patterns
+
+Website bands:
+
+- weak: `< 0.60`
+- moderate: `0.60-0.79`
+- strong: `>= 0.80`
+
+Use this score for triage and review prioritization, not as a scientific
+probability.
+
+## 12. Review Routing
+
+Rows are routed for human review when signals suggest uncertainty or possible
+false positives, including:
+
+- rules/LLM disagreement
+- weak verifier support
+- adjudicator challenge
+- no direct gene-linked evidence
+- negative paper type
+- functional label without perturbation evidence
+- ambiguous gene symbol
+- borderline evidence-support score
+
+The Hugging Face website displays review status, support components, evidence
+quote, verifier reasons, adjudicator reasons, and reviewer notes.
+
+## 13. Database Writes
+
+Final outputs are written to SQLite:
+
+- `papers`: one row per gene/PMID pair
+- `genes`: per-gene summary and refresh metadata
+- `request_queue`: requested genes and processing status
+- `skipped_pmids`: papers skipped by filtering
+
+The DB is then uploaded/synced through Google Drive and read by the Hugging Face
+website.
+
+## 14. Reprocessing Existing Rows
+
+There are two levels of applying algorithm updates to old database rows.
+
+### Fast Recompute
+
+```bash
+python -u scripts/recompute_confidence.py \
+  --db-path gene_function_lab/gene_function_lab.db \
+  --upload
+```
+
+This updates support score, verifier/adjudicator fields, paper type, and best
+available evidence quote from stored snippets. It does not rerun PubMed,
+PMC retrieval, or BioMistral.
+
+### Full Reprocess
+
+```bash
+python -u scripts/reprocess_papers.py \
+  --db-path gene_function_lab/gene_function_lab.db \
+  --gene ADAM10 \
+  --max-papers 100 \
+  --ignore-cache \
+  --upload
+```
+
+This reruns search, ranking, evidence retrieval, classification, verification,
+and scoring. Use this for complaint genes, high-value genes, or when search and
+evidence extraction changed substantially.
+
+## 15. Recommended Reprocessing Policy
+
+After an algorithm update, do not immediately rebuild the full database unless
+the lab has enough compute and review time.
+
+Recommended sequence:
+
+1. Run `scripts/recompute_confidence.py --upload` for all rows.
+2. Reprocess 3-5 known complaint genes with `--ignore-cache`.
+3. Review changed classifications and evidence quotes on the website.
+4. If quality improves, reprocess high-priority genes in batches.
+5. Only rebuild all genes after the lab accepts the new behavior on samples.
+
+This avoids spending many GPU hours and possibly changing thousands of rows
+before humans confirm the new logic is better.
+
+## Algorithm Change Log
+
+### Before June 26, 2026
+
+The project was mainly:
+
+- PubMed gene/cancer search
+- rule-based evidence detection
+- one BioMistral classifier
+- heuristic confidence score
+- SQLite result storage
+- Hugging Face review website
+
+Main limitations:
+
+- broad candidate search could include many weakly related papers
+- paper type was not explicit
+- confidence was coarse and often repeated values
+- review routing was limited
+- old rows could be hard to rebuild systematically
+
+### June 26, 2026
+
+Added stronger review and UI infrastructure:
+
+- skeptical evidence verifier
+- evidence-agent workflow
+- adjudicator/review-router concept
+- result sorting controls
+- clearer human review support in the website
+
+Impact:
+
+- better review routing for weak or contradictory rows
+- more transparent evidence diagnostics
+- easier workflow for comparing genes and papers
+
+### June 27, 2026
+
+Improved search and reprocessing workflow:
+
+- evidence-focused PubMed query before broad fallback
+- candidate ranking by gene, cancer, perturbation, phenotype, and model signals
+- evidence-focused snippet retrieval
+- search relevance score
+- evidence retrieval score
+- force reprocess workflow for genes or selected PMIDs
+- gold-label evaluation support
+
+Impact:
+
+- better use of limited Colab/GPU time
+- safer way to rebuild old rows under new algorithm logic
+- starting point for validation with human labels
+
+### June 28, 2026
+
+Improved evidence triage and interpretability:
+
+- deterministic `paper_type.py`
+- PubMed publication type storage
+- `paper_type` stored in SQLite and shown in the website
+- `best_evidence_quote`
+- `gene_linked_evidence_sents`
+- tighter in vitro/in vivo evidence counting based on direct gene linkage
+- paper-type and gene-linked-evidence factors added to evidence-support scoring
+- adjudication status/reasons stored as first-class DB fields
+- website expanded rows show best quote, paper type, adjudicator reasons, and
+  additional support components
+- gold-label evaluator reports score-band accuracy and errors by paper type
+
+Impact:
+
+- easier identification of review/prognosis/expression-only false positives
+- stronger explanation for why a paper was classified
+- better human-review prioritization
+
+## Current Limitations
+
+- The score is heuristic and not calibrated against a large gold-label set.
+- Full-text retrieval depends on PMC availability.
+- Gene aliases are manual and conservative.
+- BioMistral is still a single local LLM classifier.
+- The system can miss papers whose abstracts omit direct perturbation or
+  phenotype language.
+- Major algorithm changes should be validated on human-labeled examples before
+  full database rebuilds.
