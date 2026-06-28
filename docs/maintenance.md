@@ -42,6 +42,7 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 | Human review API | `app.py` `/api/review` | Saves reviewer status, label, notes, and reviewer metadata for a paper. |
 | Main worker | `scripts/process_queue.py` | Processes pending queue requests, retries failed requests, and refreshes stale existing genes in controlled batches. |
 | Confidence recompute | `scripts/recompute_confidence.py` | Re-scores existing rows after the scoring algorithm changes, without rerunning PubMed or BioMistral. |
+| Algorithm field audit | `scripts/check_algorithm_fields.py` | Read-only check for missing structured evidence, paper type, review reasons, best quotes, and LLM verifier fields. |
 | Manual refresh fallback | `scripts/update_existing_genes.py` | Advanced manual chunk refresh for existing genes. |
 | Status check | `scripts/check_queue_status.py` | Prints DB and queue status. |
 | Refresh verification | `scripts/check_gene_refresh.py` | Confirms the selected refresh chunk and last run times. |
@@ -70,6 +71,17 @@ recomputed. To recompute existing rows without rerunning BioMistral:
 ```bash
 python -u scripts/recompute_confidence.py --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db --upload
 ```
+
+Then check whether the current database has the expected review fields:
+
+```bash
+python -u scripts/check_algorithm_fields.py --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
+```
+
+If this reports missing `structured_evidence_json`, rerun recompute. If it
+reports risky rows without `agentic_verifier_*`, use selected full reprocessing
+only for genes/PMIDs that matter; fast recompute cannot create real LLM verifier
+calls.
 
 Use the expanded paper row in the website to set:
 

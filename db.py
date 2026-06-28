@@ -370,12 +370,50 @@ def _review_priority(row: dict) -> str:
     return "low"
 
 
+def _review_summary(row: dict) -> str:
+    """Return a short lab-facing explanation of why a row needs attention."""
+    signals = set(_review_signals(row))
+    bits: list[str] = []
+    if "llm_verifier_challenge" in signals:
+        bits.append("LLM verifier challenged the classification")
+    elif "llm_verifier_unclear" in signals:
+        bits.append("LLM verifier marked the evidence unclear")
+    if "adjudicator_challenge" in signals:
+        bits.append("automated adjudicator found an inconsistency")
+    if "llm_rules_disagree" in signals:
+        bits.append("rules and BioMistral disagree")
+    if "verifier_not_supported" in signals:
+        bits.append("deterministic verifier did not find enough support")
+    elif "verifier_weak_support" in signals:
+        bits.append("deterministic verifier found weak support")
+    if "structured_evidence_missing" in signals:
+        bits.append("structured extractor found missing core evidence")
+    elif "structured_evidence_partial" in signals:
+        bits.append("structured extractor found incomplete evidence")
+    if "functional_without_perturbation_evidence" in signals:
+        bits.append("functional label lacks perturbation evidence")
+    if "no_gene_linked_evidence" in signals:
+        bits.append("no direct gene-linked evidence sentence")
+    if "weak_gene_match" in signals:
+        bits.append("target gene match is weak")
+    if "negative_paper_type" in signals:
+        bits.append("paper type looks review/prognosis/expression/methods-like")
+    if "borderline_confidence" in signals:
+        bits.append("evidence-support score is borderline")
+    if "rules_only" in signals:
+        bits.append("classified without BioMistral")
+    if not bits:
+        return "No major automated review flags."
+    return "; ".join(dict.fromkeys(bits[:5]))
+
+
 def annotate_paper_row(row: dict) -> dict:
     out = dict(row)
     out["review_status"] = out.get("review_status") or "unreviewed"
     out["confidence_label"] = _confidence_label(out)
     out["review_priority"] = _review_priority(out)
     out["review_signals"] = _review_signals(out)
+    out["review_summary"] = _review_summary(out)
     try:
         from confidence import explain_confidence_from_db_row
 

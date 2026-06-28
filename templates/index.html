@@ -747,8 +747,11 @@ function renderTable(rows, total) {
 
 function buildEv(row, uid) {
   const parts = [];
+  if (row.review_summary) {
+    parts.push(`<div class="ev-lbl">Review summary</div><div class="ev-note">${esc(row.review_summary)}</div>`);
+  }
   if (row.best_evidence_quote) {
-    parts.push(`<div class="ev-lbl">Best gene-linked evidence quote</div><div class="ev-txt">${esc(row.best_evidence_quote)}</div>`);
+    parts.push(`<div class="ev-lbl" style="margin-top:${parts.length ? '12px' : '0'};">Best gene-linked evidence quote</div><div class="ev-txt">${esc(row.best_evidence_quote)}</div>`);
   }
   if (row.llm_reasoning) parts.push(`<div class="ev-lbl">LLM reasoning</div><div class="ev-note">${esc(row.llm_reasoning)}</div>`);
   [['evidence_perturbation','Perturbation'], ['evidence_in_vitro','In vitro'],

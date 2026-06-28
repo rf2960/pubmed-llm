@@ -96,6 +96,16 @@ The same script also backfills `structured_evidence_json` from stored snippets.
 This is useful for website review, but it remains limited by what evidence was
 already stored in the database.
 
+To check whether the current DB has the expected support/review fields, run:
+
+```bash
+python -u scripts/check_algorithm_fields.py \
+  --db-path gene_function_lab/gene_function_lab.db
+```
+
+This audit is read-only. It helps decide whether a fast recompute is enough or
+whether selected genes/PMIDs need full reprocessing.
+
 ## Calibration Plan
 
 The score should not be described as statistically calibrated until the lab has

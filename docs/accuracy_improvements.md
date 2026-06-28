@@ -108,6 +108,17 @@ classification was made without reading the raw agent trace. It also helps flag
 functional labels whose evidence is incomplete. The extractor is deterministic
 and does not add another LLM call.
 
+### Backfill And Field Audit
+
+`scripts/check_algorithm_fields.py` is a read-only sanity check for the current
+database. It reports whether rows are missing structured evidence summaries,
+review reasons, paper type labels, best evidence quotes, or optional LLM
+verifier outputs for risky rows.
+
+This does not change classification behavior. It makes maintenance safer by
+showing whether a code update has actually been applied to the database and
+which rows may be worth selected reprocessing.
+
 ### More Diagnostic Evaluation
 
 `scripts/evaluate_gold_labels.py` now reports score-band accuracy and errors by

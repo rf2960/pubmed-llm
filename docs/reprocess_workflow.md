@@ -88,6 +88,25 @@ Use this when the lab wants the new support rubric, paper-type labels,
 structured evidence summaries, and review routing fields applied to existing
 stored snippets without rerunning the slow BioMistral worker.
 
+## Audit Backfill Coverage
+
+After recompute or selected reprocessing, run:
+
+```bash
+python -u scripts/check_algorithm_fields.py \
+  --db-path gene_function_lab/gene_function_lab.db
+```
+
+This is read-only. It reports missing structured evidence, missing review
+reasons, unknown paper type, functional rows without best quotes, weak gene
+matches, and risky rows that do not have LLM verifier outputs.
+
+Interpretation:
+
+- missing `structured_evidence_json`: run `scripts/recompute_confidence.py`.
+- risky rows without `agentic_verifier_*`: use selected full reprocessing only
+  when those rows matter. Fast recompute cannot create real LLM verifier calls.
+
 ## Rebuild Selected PMIDs
 
 ```bash
