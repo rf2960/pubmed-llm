@@ -24,3 +24,6 @@ _manual_upload/
 
 # Local copied Drive database snapshots
 active_drive_gene_function_lab.db
+
+# Private one-time Colab update notebooks
+PRIVATE_COLAB_UPDATE_RUNNER.ipynb
