@@ -107,6 +107,26 @@ Interpretation:
 - risky rows without `agentic_verifier_*`: use selected full reprocessing only
   when those rows matter. Fast recompute cannot create real LLM verifier calls.
 
+For a ranked plan, run:
+
+```bash
+python -u scripts/plan_reprocess.py \
+  --db-path gene_function_lab/gene_function_lab.db \
+  --top-genes 10 \
+  --top-pmids 25 \
+  --csv-out outputs/reprocess_plan.csv
+```
+
+Planner actions:
+
+- `recompute_only`: run recompute first; selected reprocess is premature.
+- `selected_pmid_reprocess`: rebuild only the listed PMIDs if reviewers care
+  about those papers.
+- `selected_gene_reprocess`: rebuild the selected gene in a controlled batch.
+- `optional_selected_reprocess`: consider full reprocessing only if the missing
+  LLM verifier output matters for review.
+- `no_action`: no maintenance action is recommended from current signals.
+
 ## Rebuild Selected PMIDs
 
 ```bash

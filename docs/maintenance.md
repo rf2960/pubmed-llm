@@ -43,6 +43,7 @@ The website should stay CPU-only. The worker should run in Colab, a lab GPU mach
 | Main worker | `scripts/process_queue.py` | Processes pending queue requests, retries failed requests, and refreshes stale existing genes in controlled batches. |
 | Confidence recompute | `scripts/recompute_confidence.py` | Re-scores existing rows after the scoring algorithm changes, without rerunning PubMed or BioMistral. |
 | Algorithm field audit | `scripts/check_algorithm_fields.py` | Read-only check for missing structured evidence, paper type, review reasons, best quotes, and LLM verifier fields. |
+| Reprocess planner | `scripts/plan_reprocess.py` | Read-only ranking of genes/PMIDs that should be recomputed, selectively reprocessed, or left alone. |
 | Manual refresh fallback | `scripts/update_existing_genes.py` | Advanced manual chunk refresh for existing genes. |
 | Status check | `scripts/check_queue_status.py` | Prints DB and queue status. |
 | Refresh verification | `scripts/check_gene_refresh.py` | Confirms the selected refresh chunk and last run times. |
@@ -78,10 +79,18 @@ Then check whether the current database has the expected review fields:
 python -u scripts/check_algorithm_fields.py --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db
 ```
 
-If this reports missing `structured_evidence_json`, rerun recompute. If it
-reports risky rows without `agentic_verifier_*`, use selected full reprocessing
-only for genes/PMIDs that matter; fast recompute cannot create real LLM verifier
-calls.
+If the audit reports missing deterministic fields such as
+`structured_evidence_json`, rerun recompute. If it reports suspicious rows after
+recompute, run the planner before spending GPU time:
+
+```bash
+python -u scripts/plan_reprocess.py --db-path /content/drive/MyDrive/pubmed_llm/gene_function_lab/gene_function_lab.db --top-genes 10 --top-pmids 25
+```
+
+The planner recommends `recompute_only`, `selected_pmid_reprocess`,
+`selected_gene_reprocess`, or `no_action`. Fast recompute cannot create real
+LLM verifier calls, so use selected full reprocessing only for genes/PMIDs that
+the planner or lab reviewers identify as important.
 
 Use the expanded paper row in the website to set:
 

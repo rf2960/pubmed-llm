@@ -407,6 +407,47 @@ def _review_summary(row: dict) -> str:
     return "; ".join(dict.fromkeys(bits[:5]))
 
 
+def _review_category(row: dict) -> str:
+    """Map low-level signals to a stable review category for the UI."""
+    signals = set(_review_signals(row))
+    if {"llm_verifier_challenge", "adjudicator_challenge", "llm_rules_disagree"} & signals:
+        return "classification_conflict"
+    if {"verifier_not_supported", "verifier_weak_support", "structured_evidence_missing", "structured_evidence_partial"} & signals:
+        return "weak_evidence"
+    if {"functional_without_perturbation_evidence", "no_gene_linked_evidence", "weak_gene_match"} & signals:
+        return "gene_or_method_unclear"
+    if "negative_paper_type" in signals:
+        return "paper_type_risk"
+    if "borderline_confidence" in signals:
+        return "borderline_support"
+    if "rules_only" in signals:
+        return "rules_only"
+    return "routine"
+
+
+def _recommended_action(row: dict) -> str:
+    """Return the next practical action for a lab reviewer or maintainer."""
+    category = _review_category(row)
+    priority = _review_priority(row)
+    if row.get("review_status") == "reviewed":
+        return "Already human reviewed."
+    if category == "classification_conflict":
+        return "Human review first; selected PMID reprocess if the paper matters."
+    if category == "weak_evidence":
+        return "Inspect evidence quote and structured evidence before trusting label."
+    if category == "gene_or_method_unclear":
+        return "Check whether the target gene is directly perturbed; consider selected reprocess."
+    if category == "paper_type_risk":
+        return "Check for review/expression/prognosis-only false positive."
+    if category == "borderline_support":
+        return "Routine human review; do not use as strong evidence yet."
+    if category == "rules_only":
+        return "Consider BioMistral reprocess for high-value papers."
+    if priority == "low":
+        return "Routine inspection only."
+    return "Review before biological interpretation."
+
+
 def annotate_paper_row(row: dict) -> dict:
     out = dict(row)
     out["review_status"] = out.get("review_status") or "unreviewed"
@@ -414,6 +455,8 @@ def annotate_paper_row(row: dict) -> dict:
     out["review_priority"] = _review_priority(out)
     out["review_signals"] = _review_signals(out)
     out["review_summary"] = _review_summary(out)
+    out["review_category"] = _review_category(out)
+    out["recommended_action"] = _recommended_action(out)
     try:
         from confidence import explain_confidence_from_db_row
 

@@ -119,6 +119,26 @@ This does not change classification behavior. It makes maintenance safer by
 showing whether a code update has actually been applied to the database and
 which rows may be worth selected reprocessing.
 
+The audit now also reports high-confidence weak-evidence rows, functional rows
+without perturbation or phenotype evidence, suspicious paper types, repeated
+confidence buckets, per-gene maintenance summaries, and optional CSV exports.
+This helps distinguish "the database needs recompute" from "this gene or PMID
+should be fully reprocessed."
+
+### Reprocess Planning
+
+`scripts/plan_reprocess.py` ranks genes and PMIDs after an audit. It recommends:
+
+- `recompute_only` when deterministic fields are missing
+- `selected_pmid_reprocess` for isolated suspicious rows
+- `selected_gene_reprocess` when a gene has many weak or missing fields
+- `optional_selected_reprocess` when the only missing information is the gated
+  LLM verifier
+- `no_action` when the row looks routine
+
+This keeps accuracy work targeted and avoids a full database rebuild before the
+lab has reviewed sample outputs.
+
 ### More Diagnostic Evaluation
 
 `scripts/evaluate_gold_labels.py` now reports score-band accuracy and errors by

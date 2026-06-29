@@ -106,6 +106,19 @@ python -u scripts/check_algorithm_fields.py \
 This audit is read-only. It helps decide whether a fast recompute is enough or
 whether selected genes/PMIDs need full reprocessing.
 
+For a ranked action plan after the audit, run:
+
+```bash
+python -u scripts/plan_reprocess.py \
+  --db-path gene_function_lab/gene_function_lab.db \
+  --top-genes 10 \
+  --top-pmids 25
+```
+
+Rows with high score but weak evidence are not automatically changed by the
+planner. They are surfaced for human review or selected full reprocessing so
+the lab can inspect the evidence before changing many labels.
+
 ## Calibration Plan
 
 The score should not be described as statistically calibrated until the lab has

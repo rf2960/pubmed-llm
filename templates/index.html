@@ -158,6 +158,9 @@ tr:last-child td{border-bottom:none;}tr:hover td{background:#fafbfc;}
 .ev-lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;}
 .ev-txt{font-family:var(--mono);font-size:12px;color:var(--text);line-height:1.7;}
 .ev-note{font-size:13px;color:var(--muted);line-height:1.6;font-style:italic;}
+.action-box{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:10px 12px;margin-bottom:12px;}
+.action-box .badge{margin-right:6px;margin-bottom:4px;}
+.action-text{font-size:13px;color:var(--text);line-height:1.55;margin-top:5px;}
 .support-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;}
 .support-component{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 8px;font-size:11px;color:var(--muted);}
 .support-component strong{display:block;color:var(--text);font-family:var(--mono);font-size:14px;margin-top:2px;}
@@ -747,6 +750,16 @@ function renderTable(rows, total) {
 
 function buildEv(row, uid) {
   const parts = [];
+  const priority = row.review_priority || 'low';
+  const category = row.review_category || 'routine';
+  const action = row.recommended_action || '';
+  parts.push(`<div class="action-box">
+    <div>
+      <span class="badge bprio-${attr(priority)}">Priority: ${esc(priority)}</span>
+      <span class="badge bb">Category: ${esc(category.replace(/_/g, ' '))}</span>
+    </div>
+    ${action ? `<div class="action-text">${esc(action)}</div>` : ''}
+  </div>`);
   if (row.review_summary) {
     parts.push(`<div class="ev-lbl">Review summary</div><div class="ev-note">${esc(row.review_summary)}</div>`);
   }

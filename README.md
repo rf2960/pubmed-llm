@@ -121,6 +121,7 @@ processes pending queue requests first, then refreshes existing genes whose
 | `scripts/process_queue.py` | Main maintenance worker for pending requests, failed requests, and stale existing-gene refresh. |
 | `scripts/recompute_confidence.py` | Recomputes existing paper evidence-support scores after scoring logic changes, without rerunning PubMed or BioMistral. |
 | `scripts/check_algorithm_fields.py` | Read-only audit of algorithm/backfill fields such as structured evidence, paper type, review reasons, quotes, and missing LLM verifier fields. |
+| `scripts/plan_reprocess.py` | Read-only planner that ranks genes/PMIDs for recompute, selected reprocess, or no action after an algorithm update. |
 | `scripts/reprocess_papers.py` | Force-reprocesses a gene or selected PMIDs with the current search/evidence/classifier pipeline. |
 | `scripts/evaluate_gold_labels.py` | Evaluates DB labels against a small human-labeled CSV benchmark. |
 | `scripts/update_existing_genes.py` | Advanced fallback for manual existing-gene refresh chunks. |
